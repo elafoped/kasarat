@@ -16,7 +16,7 @@ jobs:
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
-          node-version: 18
+          node-version: 22
 
       - name: Install dependencies
         run: npm install
@@ -36,7 +36,8 @@ jobs:
         with:
           tagName: v${{ github.ref_name }}
           releaseName: 'نظام إدارة الكسارات v${{ github.ref_name }}'
-          draft: false
+          releaseBody: 'نسخة جديدة من نظام إدارة الكسارات'
+          releaseDraft: false
           prerelease: false
 
       - name: Upload installer
