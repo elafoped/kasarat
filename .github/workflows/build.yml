@@ -29,16 +29,13 @@ jobs:
         with:
           targets: x86_64-pc-windows-msvc
 
+      - name: Install Tauri CLI
+        run: cargo install tauri-cli
+
       - name: Build Tauri app
-        uses: tauri-apps/tauri-action@v0
+        run: cargo tauri build --release
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          tagName: v${{ github.ref_name }}
-          releaseName: 'نظام إدارة الكسارات v${{ github.ref_name }}'
-          releaseBody: 'نسخة جديدة من نظام إدارة الكسارات'
-          releaseDraft: false
-          prerelease: false
 
       - name: Upload installer
         uses: actions/upload-artifact@v4
