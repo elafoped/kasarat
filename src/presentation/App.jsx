@@ -22,10 +22,11 @@ import Toast from './components/Toast';
 
 const PAGES = {
   dashboard: { id: 'dashboard', icon: '📊', label: 'الرئيسية', component: Dashboard },
+    sales: { id: 'sales', icon: '💰', label: 'المبيعات', component: Sales },
+
   customers: { id: 'customers', icon: '👤', label: 'الزبائن', component: Customers },
   vehicles: { id: 'vehicles', icon: '🚗', label: 'السيارات', component: Vehicles },
   materials: { id: 'materials', icon: '🧱', label: 'المواد', component: Materials },
-  sales: { id: 'sales', icon: '💰', label: 'المبيعات', component: Sales },
   payments: { id: 'payments', icon: '💵', label: 'الدفعات', component: Payments },
   debts: { id: 'debts', icon: '📋', label: 'الديون', component: Debts },
   invoices: { id: 'invoices', icon: '🧾', label: 'الفواتير', component: Invoices },

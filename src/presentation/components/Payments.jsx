@@ -234,9 +234,7 @@ function Payments({ success, error, warning, settings, onRefresh }) {
   return (
     <div className="page-section active">
       <div className="toolbar">
-        <button className="btn btn-success" onClick={openModal}>
-          💵 دفعة جديدة
-        </button>
+       
         <div className="spacer"></div>
 
         <div className="filter-group">

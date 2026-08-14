@@ -213,9 +213,7 @@ function Materials({ success, error, warning, settings, onRefresh }) {
   return (
     <div className="page-section active">
       <div className="toolbar">
-        <button className="btn btn-primary" onClick={() => openModal()}>
-          ➕ مادة جديدة
-        </button>
+      
         <div className="spacer"></div>
         <div className="search-box">
           <span>🔍</span>

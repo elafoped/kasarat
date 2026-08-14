@@ -95,7 +95,7 @@ export const Validators = {
       return { valid: false, message: 'السعر يجب أن يكون رقماً موجباً' };
     }
     
-    if (num > 999999999) {
+    if (num > 99999999999999999999999999999) {
       return { valid: false, message: 'السعر كبير جداً' };
     }
     

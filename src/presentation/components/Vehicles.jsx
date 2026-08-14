@@ -257,9 +257,7 @@ function Vehicles({ success, error, warning, onRefresh }) {
       {/* شريط الأدوات */}
       {/* ============================================================ */}
       <div className="toolbar">
-        <button className="btn btn-primary" onClick={() => openModal()}>
-          🚗 سيارة جديدة
-        </button>
+       
         <div className="spacer"></div>
         <div className="search-box">
           <span>🔍</span>

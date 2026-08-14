@@ -12,7 +12,7 @@ function Sidebar({ pages, currentPage, navigateTo, isOpen, onToggle }) {
             </a>
           ))}
         </nav>
-        <div className="sidebar-footer">v4.0 · محلي بالكامل</div>
+        <div className="sidebar-footer">v1.0 · محلي بالكامل</div>
       </aside>
     </>
   );

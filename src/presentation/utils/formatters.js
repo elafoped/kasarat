@@ -1,3 +1,5 @@
+// src/utils/formatters.js
+
 // ============================================================
 // تنسيق التاريخ
 // ============================================================
@@ -5,28 +7,29 @@ export const formatDate = (date) => {
   if (!date) return '-';
   try {
     const d = new Date(date);
-    if (isNaN(d.getTime())) return '-';
-    return d.toLocaleDateString('ar-EG', { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric' 
+    return d.toLocaleDateString('ar-EG', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric'
     });
   } catch {
     return '-';
   }
 };
 
+// ============================================================
+// تنسيق التاريخ والوقت
+// ============================================================
 export const formatDateTime = (date) => {
   if (!date) return '-';
   try {
     const d = new Date(date);
-    if (isNaN(d.getTime())) return '-';
-    return d.toLocaleString('ar-EG', { 
-      year: 'numeric', 
-      month: 'short', 
-      day: 'numeric', 
-      hour: '2-digit', 
-      minute: '2-digit' 
+    return d.toLocaleDateString('ar-EG', {
+      year: 'numeric',
+      month: 'numeric',
+      day: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit'
     });
   } catch {
     return '-';
@@ -34,24 +37,39 @@ export const formatDateTime = (date) => {
 };
 
 // ============================================================
-// تنسيق العملة - مع التحقق من القيم
+// تنسيق العملة – يعرض المبلغ مقرباً لرقمين عشريين
+// (لتجنب أخطاء الفاصلة العائمة مثل 0.009999999776)
 // ============================================================
-export const formatCurrency = (amount, currency = 'ل.س') => {
-  // التحقق من أن المبلغ رقم صحيح
-  const num = Number(amount);
-  if (isNaN(num) || !isFinite(num)) {
-    return `0.00 ${currency}`;
+export const formatCurrency = (value, currency = 'ل.س') => {
+  if (value === undefined || value === null || isNaN(value)) {
+    return `0 ${currency}`;
   }
-  return num.toFixed(2) + ' ' + currency;
+  const num = Number(value);
+  if (!isFinite(num)) return `0 ${currency}`;
+  // تجاهل الفروق الصغيرة جداً
+  if (Math.abs(num) < 0.005) return `0 ${currency}`;
+  const rounded = Number(num.toFixed(2));
+  if (rounded % 1 === 0) {
+    return `${rounded} ${currency}`;
+  }
+  return `${rounded.toFixed(2)} ${currency}`;
 };
 
 // ============================================================
-// تنسيق الأرقام
+// تنسيق الأرقام (إضافة فواصل للأرقام الكبيرة)
 // ============================================================
 export const formatNumber = (num) => {
-  const n = Number(num);
-  if (isNaN(n)) return '0';
-  return n.toLocaleString('ar-EG');
+  if (num === undefined || num === null || isNaN(num)) return '0';
+  return Number(num).toLocaleString('ar-EG');
+};
+
+// ============================================================
+// اختصار النص الطويل
+// ============================================================
+export const truncateText = (text, maxLength = 30) => {
+  if (!text) return '';
+  if (text.length <= maxLength) return text;
+  return text.substring(0, maxLength) + '...';
 };
 
 // ============================================================

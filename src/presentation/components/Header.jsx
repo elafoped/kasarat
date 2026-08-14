@@ -29,7 +29,6 @@ function Header({ currentPage, pages, user, onToggleSidebar }) {
         <span className="role-badge">
           {user?.role === 'admin' ? '👑 مدير' : 'مستخدم'}
         </span>
-        {/* تم إزالة زر تسجيل الخروج */}
       </div>
     </header>
   );

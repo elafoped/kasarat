@@ -250,11 +250,8 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
       {/* ============================================================ */}
       {/* شريط الأدوات */}
       {/* ============================================================ */}
-      <div className="toolbar">
-        <button className="btn btn-primary" onClick={() => openModal()}>
-          ➕ زبون جديد
-        </button>
-        <div className="spacer"></div>
+    <div className="toolbar">
+     
         <div className="search-box">
           <span>🔍</span>
           <input 
