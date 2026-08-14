@@ -11,3 +11,4 @@ export class CancelSaleUseCase {
     return true
   }
 }
+

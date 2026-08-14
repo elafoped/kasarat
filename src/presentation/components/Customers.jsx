@@ -5,6 +5,8 @@ import { formatCurrency, formatDate } from '../utils/formatters';
 
 function Customers({ showToast, success, error, warning, settings, onRefresh }) {
   const [customers, setCustomers] = useState([]);
+  const [sales, setSales] = useState([]);
+  const [payments, setPayments] = useState([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -18,14 +20,22 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
   const [errors, setErrors] = useState({});
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  // ============================================================
   // تحميل البيانات
+  // ============================================================
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const data = await db.getAll('customers');
-      setCustomers(data);
+      const [customersData, salesData, paymentsData] = await Promise.all([
+        db.getAll('customers'),
+        db.getAll('sales'),
+        db.getAll('payments')
+      ]);
+      setCustomers(customersData);
+      setSales(salesData);
+      setPayments(paymentsData);
     } catch (e) {
-      error('خطأ في تحميل الزبائن: ' + e.message);
+      error('خطأ في تحميل البيانات: ' + e.message);
     } finally {
       setLoading(false);
     }
@@ -35,7 +45,21 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
     loadData();
   }, [loadData]);
 
+  // ============================================================
+  // حساب إجمالي المشتريات والرصيد لكل زبون
+  // ============================================================
+  const getCustomerStats = (customerId) => {
+    const customerSales = sales.filter(s => s.customerId === customerId && s.status === 'active');
+    const total = customerSales.reduce((sum, s) => sum + (s.totalAmount || 0), 0);
+    const customerPayments = payments.filter(p => p.customerId === customerId && p.status === 'active');
+    const paid = customerPayments.reduce((sum, p) => sum + (p.amount || 0), 0);
+    const count = customerSales.length;
+    return { total, paid, balance: total - paid, count };
+  };
+
+  // ============================================================
   // التحقق من صحة البيانات
+  // ============================================================
   const validateForm = () => {
     const newErrors = {};
     
@@ -125,20 +149,22 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
     }
   };
 
+  // ============================================================
   // حذف زبون
+  // ============================================================
   const handleDelete = async (id) => {
     if (!window.confirm('⚠️ هل أنت متأكد من حذف هذا الزبون؟')) return;
     
     try {
-      const sales = await db.getByIndex('sales', 'customerId', id);
-      if (sales.length > 0) {
-        error(`❌ لا يمكن حذف زبون لديه ${sales.length} مبيعات`);
+      const salesList = await db.getByIndex('sales', 'customerId', id);
+      if (salesList.length > 0) {
+        error(`❌ لا يمكن حذف زبون لديه ${salesList.length} مبيعات`);
         return;
       }
       
-      const vehicles = await db.getByIndex('vehicles', 'customerId', id);
-      if (vehicles.length > 0) {
-        error(`❌ لا يمكن حذف زبون لديه ${vehicles.length} سيارات`);
+      const vehiclesList = await db.getByIndex('vehicles', 'customerId', id);
+      if (vehiclesList.length > 0) {
+        error(`❌ لا يمكن حذف زبون لديه ${vehiclesList.length} سيارات`);
         return;
       }
       
@@ -153,6 +179,9 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
     }
   };
 
+  // ============================================================
+  // فتح وإغلاق الديالوغ
+  // ============================================================
   const openModal = (customer = null) => {
     if (customer) {
       setEditingCustomer(customer);
@@ -178,7 +207,9 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
     setFormData({ name: '', phone: '', address: '', notes: '' });
   };
 
+  // ============================================================
   // البحث المتقدم
+  // ============================================================
   const getFilteredCustomers = useCallback(() => {
     if (!search || search.trim() === '') {
       return customers;
@@ -216,6 +247,9 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
 
   return (
     <div className="page-section active">
+      {/* ============================================================ */}
+      {/* شريط الأدوات */}
+      {/* ============================================================ */}
       <div className="toolbar">
         <button className="btn btn-primary" onClick={() => openModal()}>
           ➕ زبون جديد
@@ -238,17 +272,23 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
         </span>
       </div>
 
+      {/* ============================================================ */}
+      {/* إحصائيات سريعة */}
+      {/* ============================================================ */}
       <div className="stats-mini">
         <div className="stat-item">
-          <div className="label">إجمالي الزبائن</div>
+          <div className="label">👤 إجمالي الزبائن</div>
           <div className="value">{customers.length}</div>
         </div>
         <div className="stat-item">
-          <div className="label">نتائج البحث</div>
+          <div className="label">📊 نتائج البحث</div>
           <div className="value">{filtered.length}</div>
         </div>
       </div>
 
+      {/* ============================================================ */}
+      {/* جدول الزبائن */}
+      {/* ============================================================ */}
       <div className="card">
         <div className="table-wrap">
           <table>
@@ -258,30 +298,41 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
                 <th>الاسم</th>
                 <th>الهاتف</th>
                 <th>العنوان</th>
+                <th>المشتريات</th>
+                <th>المدفوع</th>
+                <th>الرصيد</th>
                 <th>الإجراءات</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="5" className="text-center">⏳ جاري التحميل...</td></tr>
+                <tr><td colSpan="8" className="text-center">⏳ جاري التحميل...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan="5" className="text-center">
+                <tr><td colSpan="8" className="text-center">
                   {search ? '🔍 لا توجد نتائج للبحث' : '📭 لا يوجد زبائن'}
                 </td></tr>
               ) : (
-                filtered.map((c, index) => (
-                  <tr key={c.id}>
-                    <td>{index + 1}</td>
-                    <td><strong>{c.name}</strong></td>
-                    <td>{c.phone || '-'}</td>
-                    <td>{c.address || '-'}</td>
-                    <td>
-                      <button className="btn btn-primary btn-xs" onClick={() => {}}>📋 عرض</button>
-                      <button className="btn btn-warning btn-xs" onClick={() => openModal(c)}>✏️ تعديل</button>
-                      <button className="btn btn-danger btn-xs" onClick={() => handleDelete(c.id)}>🗑️ حذف</button>
-                    </td>
-                  </tr>
-                ))
+                filtered.map((c, index) => {
+                  const stats = getCustomerStats(c.id);
+                  return (
+                    <tr key={c.id}>
+                      <td>{index + 1}</td>
+                      <td><strong>{c.name}</strong></td>
+                      <td>{c.phone || '-'}</td>
+                      <td>{c.address || '-'}</td>
+                      <td>{formatCurrency(stats.total, settings.currency)}</td>
+                      <td>{formatCurrency(stats.paid, settings.currency)}</td>
+                      <td className={stats.balance > 0 ? 'text-danger' : 'text-success'}>
+                        {formatCurrency(stats.balance, settings.currency)}
+                      </td>
+                      <td>
+                        <button className="btn btn-primary btn-xs" onClick={() => {}}>📋 عرض</button>
+                        <button className="btn btn-warning btn-xs" onClick={() => openModal(c)}>✏️ تعديل</button>
+                        <button className="btn btn-danger btn-xs" onClick={() => handleDelete(c.id)}>🗑️ حذف</button>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -289,7 +340,7 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
       </div>
 
       {/* ============================================================ */}
-      {/* Modal - مع إغلاق تلقائي بعد الحفظ */}
+      {/* Modal إضافة/تعديل زبون */}
       {/* ============================================================ */}
       {showModal && (
         <div 
@@ -312,6 +363,7 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
               </button>
             </div>
             <div className="modal-body">
+              {/* الاسم */}
               <div className="form-group">
                 <label>الاسم <span className="required">*</span></label>
                 <input 
@@ -327,6 +379,7 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
                 {errors.name && <div className="error-text">{errors.name}</div>}
               </div>
 
+              {/* الهاتف */}
               <div className="form-group">
                 <label>الهاتف</label>
                 <input 
@@ -344,6 +397,7 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
                 <div className="helper-text">📱 يجب أن يبدأ بـ 09 ويتكون من 10 أرقام</div>
               </div>
 
+              {/* العنوان */}
               <div className="form-group">
                 <label>العنوان</label>
                 <input 
@@ -355,6 +409,7 @@ function Customers({ showToast, success, error, warning, settings, onRefresh }) 
                 />
               </div>
 
+              {/* ملاحظات */}
               <div className="form-group">
                 <label>ملاحظات</label>
                 <textarea 
