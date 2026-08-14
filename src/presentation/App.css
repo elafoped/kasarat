@@ -1564,3 +1564,17 @@ tr:hover td {
 .chart-container canvas {
   border-radius: var(--radius);
 }
+
+
+/* إخفاء أزرار السهمين في Chrome, Safari, Edge, Opera */
+input.no-spinner::-webkit-outer-spin-button,
+input.no-spinner::-webkit-inner-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+/* إخفاء أزرار السهمين في Firefox */
+input.no-spinner[type="number"] {
+  -moz-appearance: textfield;
+  appearance: textfield;
+}

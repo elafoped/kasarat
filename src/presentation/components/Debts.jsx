@@ -11,6 +11,7 @@ function Debts({ settings, showToast }) {
   const [sales, setSales] = useState([]);
   const [payments, setPayments] = useState([]);
   const [invoices, setInvoices] = useState([]);
+  const [materials, setMaterials] = useState([]);
   const [loading, setLoading] = useState(true);
   const [filterCustomer, setFilterCustomer] = useState('');
   const [filterMinDebt, setFilterMinDebt] = useState('');
@@ -32,13 +33,15 @@ function Debts({ settings, showToast }) {
   const loadData = useCallback(async () => {
     try {
       setLoading(true);
-      const [customersData, salesData, paymentsData, invoicesData] = await Promise.all([
+      const [customersData, salesData, paymentsData, invoicesData, materialsData] = await Promise.all([
         db.getAll('customers'),
         db.getAll('sales'),
         db.getAll('payments'),
-        db.getAll('invoices')
+        db.getAll('invoices'),
+        db.getAll('materials').catch(() => [])
       ]);
       setCustomers(customersData);
+      setMaterials(materialsData || []);
       
       // المبيعات النشطة
       const activeSales = salesData.filter(s => s.status === 'active');
@@ -74,87 +77,72 @@ function Debts({ settings, showToast }) {
   const calculateDebts = useCallback(() => {
     const debtMap = {};
 
-    // 1. حساب إجمالي المبيعات النشطة لكل زبون
+    // ⭐ نقرأ paidAmount / remainingBalance مباشرة من كل بيع (وهي القيم
+    // "المصدر الوحيد للحقيقة" اللي يحسبها SaleService بتقريب وتنظيف
+    // موحّدين)، بدل ما نعيد جمع جدول payments من الصفر بمنطق منفصل.
+    // جمع payments لوحده كان يمكن يختلف عن sale.paidAmount في حالات
+    // كثيرة (مثلاً دفعات قديمة قبل إصلاح صفحة "الدفعات")، وهذا بالضبط
+    // كان سبب ظهور أرقام مختلفة بين صفحة الديون وصفحة المبيعات.
     sales.forEach(sale => {
       const cid = sale.customerId;
       if (!cid) return;
       if (sale.status !== 'active') return;
-      
+
       if (!debtMap[cid]) {
-        debtMap[cid] = { 
-          totalSales: 0, 
-          totalPayments: 0, 
-          salesCount: 0, 
+        debtMap[cid] = {
+          totalSales: 0,
+          totalPayments: 0,
+          salesCount: 0,
           lastSale: null,
           customerId: cid,
           saleIds: [],
-          paymentIds: [],
           invoices: []
         };
       }
       debtMap[cid].totalSales += (sale.totalAmount || 0);
+      debtMap[cid].totalPayments += (sale.paidAmount || 0);
       debtMap[cid].salesCount++;
       debtMap[cid].saleIds.push(sale.id);
-      
-      // إضافة معلومات الفاتورة
-      if (sale.invoiceId) {
-        const invoice = invoices.find(inv => inv.id === sale.invoiceId);
-        if (invoice) {
-          debtMap[cid].invoices.push({
-            invoiceId: invoice.id,
-            invoiceNumber: invoice.invoiceNumber || `INV-${invoice.id}`,
-            saleId: sale.id,
-            amount: sale.totalAmount || 0,
-            date: sale.saleDate || invoice.date || new Date().toISOString(),
-            status: invoice.status || 'active'
-          });
-        }
+
+      // ⭐ الفاتورة مرتبطة بالبيع عبر invoice.saleId (وليس sale.invoiceId
+      // الذي لا وجود له إطلاقاً بكائن البيع)، لذلك الربط القديم هنا كان
+      // لا يطابق أبداً ويترك هذه القائمة فاضية دوماً.
+      const invoice = invoices.find(inv => inv.saleId === sale.id);
+      if (invoice) {
+        debtMap[cid].invoices.push({
+          invoiceId: invoice.id,
+          invoiceNumber: invoice.invoiceNumber || `INV-${invoice.id}`,
+          saleId: sale.id,
+          amount: sale.totalAmount || 0,
+          date: sale.saleDate || invoice.invoiceDate || new Date().toISOString(),
+          status: invoice.status || 'active'
+        });
       }
-      
+
       if (!debtMap[cid].lastSale || sale.saleDate > debtMap[cid].lastSale) {
         debtMap[cid].lastSale = sale.saleDate;
       }
     });
 
-    // 2. حساب إجمالي المدفوعات من الدفعات النشطة
+    // نحسب عدد الدفعات النشطة فقط للعرض (بدون أن نجمع مبالغها من هنا)
+    const paymentCountByCustomer = {};
     payments.forEach(payment => {
-      const cid = payment.customerId;
-      if (!cid) return;
       if (payment.status !== 'active') return;
-      
-      if (debtMap[cid]) {
-        const saleId = payment.saleId;
-        let isLinkedToActiveSale = false;
-        
-        if (saleId) {
-          const relatedSale = sales.find(s => s.id === saleId);
-          if (relatedSale && relatedSale.status === 'active') {
-            isLinkedToActiveSale = true;
-          }
-        } else {
-          isLinkedToActiveSale = true;
-        }
-        
-        if (!isLinkedToActiveSale) {
-          console.log(`⏭️ تخطي دفعة ${payment.id} مرتبطة ببيع ملغى`);
-          return;
-        }
-        
-        const amount = payment.amount || 0;
-        debtMap[cid].totalPayments += amount;
-        debtMap[cid].paymentIds.push(payment.id);
-      }
+      const cid = payment.customerId;
+      if (!cid || !debtMap[cid]) return;
+      paymentCountByCustomer[cid] = (paymentCountByCustomer[cid] || 0) + 1;
     });
 
-    // 3. بناء قائمة الديون النهائية
+    // بناء قائمة الديون النهائية
     const debts = Object.keys(debtMap).map(cid => {
       const customer = customers.find(c => c.id === parseInt(cid));
       const data = debtMap[cid];
-      
+
       const totalSales = Math.round((data.totalSales || 0) * 100) / 100;
       const totalPayments = Math.round((data.totalPayments || 0) * 100) / 100;
-      const balance = Math.round((totalSales - totalPayments) * 100) / 100;
-      
+      let balance = Math.round((totalSales - totalPayments) * 100) / 100;
+      if (balance < 0.1) balance = 0; // نفس عتبة MIN_BALANCE بباقي النظام
+
       return {
         customerId: parseInt(cid),
         customerName: customer ? customer.name : 'غير معروف',
@@ -164,7 +152,7 @@ function Debts({ settings, showToast }) {
         balance: balance,
         salesCount: data.salesCount || 0,
         lastSale: data.lastSale || null,
-        paymentCount: data.paymentIds ? data.paymentIds.length : 0,
+        paymentCount: paymentCountByCustomer[cid] || 0,
         invoices: data.invoices || []
       };
     });
@@ -233,8 +221,10 @@ function Debts({ settings, showToast }) {
     
     // بناء قائمة الفواتير
     let invoiceList = invoices.map(invoice => {
-      // البحث عن المبيعات المرتبطة بهذه الفاتورة
-      const relatedSales = sales.filter(s => s.invoiceId === invoice.id);
+      // ⭐ الربط الصحيح: كل فاتورة تحمل saleId يشير للبيع الذي أنشأها،
+      // وليس العكس (sale.invoiceId غير موجود إطلاقاً بكائن البيع، لذلك
+      // كان هذا الربط القديم يفشل دائماً ويُظهر كل الفواتير بمبلغ 0).
+      const relatedSales = sales.filter(s => s.id === invoice.saleId);
       const totalAmount = relatedSales.reduce((sum, s) => sum + (s.totalAmount || 0), 0);
       const totalPaid = relatedSales.reduce((sum, s) => sum + (s.paidAmount || 0), 0);
       const remaining = totalAmount - totalPaid;
@@ -246,7 +236,7 @@ function Debts({ settings, showToast }) {
       return {
         id: invoice.id,
         invoiceNumber: invoice.invoiceNumber || `INV-${invoice.id}`,
-        date: invoice.date || invoice.createdAt || new Date().toISOString(),
+        date: invoice.invoiceDate || invoice.createdAt || new Date().toISOString(),
         customerName: customerName,
         totalAmount: Math.round(totalAmount * 100) / 100,
         totalPaid: Math.round(totalPaid * 100) / 100,
@@ -255,13 +245,23 @@ function Debts({ settings, showToast }) {
         status: invoice.status || 'active',
         paymentStatus: remaining > 0 ? 'partially_paid' : 'paid',
         notes: invoice.notes || '',
-        items: relatedSales.map(s => ({
-          materialId: s.materialId,
-          materialName: s.materialName || 'غير معروف',
-          quantity: s.quantity || 0,
-          unitPrice: s.unitPrice || 0,
-          total: s.totalAmount || 0
-        }))
+        items: relatedSales.map(s => {
+          const material = materials.find(m => m.id === s.materialId);
+          return {
+            saleId: s.id,
+            invoiceNumber: s.invoiceNumber || `#${s.id}`,
+            date: s.saleDate,
+            materialId: s.materialId,
+            materialName: material ? material.name : 'غير معروف',
+            unit: material ? material.unit : '',
+            quantity: s.quantity || 0,
+            unitPrice: s.pricePerUnit || 0,
+            total: s.totalAmount || 0,
+            paid: s.paidAmount || 0,
+            remaining: s.remainingBalance || 0,
+            notes: s.notes || ''
+          };
+        })
       };
     });
     
@@ -298,9 +298,109 @@ function Debts({ settings, showToast }) {
     });
     
     return invoiceList;
-  }, [invoices, sales, customers, invoiceFilter, invoiceStatusFilter, invoiceSortField, invoiceSortDirection]);
+  }, [invoices, sales, customers, materials, invoiceFilter, invoiceStatusFilter, invoiceSortField, invoiceSortDirection]);
 
   const allInvoices = getAllInvoices();
+
+  // ============================================================
+  // ⭐ طباعة كشف حساب كامل لزبون واحد: يجمع كل فواتيره (كل مادة/بيع)
+  // بمستند طباعة واحد بدل ما تطبع كل فاتورة لحالها.
+  // إذا انمرر onlySaleIds (مصفوفة saleId) بيطبع بس الفواتير المحددة،
+  // وإلا بيطبع كل الفواتير النشطة للزبون.
+  // ============================================================
+  const printCustomerStatement = (customerId, onlySaleIds = null) => {
+    const customer = customers.find(c => c.id === customerId);
+    if (!customer) {
+      if (showToast) showToast('الزبون غير موجود', 'error');
+      return;
+    }
+
+    let customerSales = sales.filter(s => s.customerId === customerId && s.status === 'active');
+    if (onlySaleIds && onlySaleIds.length > 0) {
+      customerSales = customerSales.filter(s => onlySaleIds.includes(s.id));
+    }
+    customerSales = customerSales.sort((a, b) => (a.saleDate || '').localeCompare(b.saleDate || ''));
+
+    if (customerSales.length === 0) {
+      if (showToast) showToast('لا توجد فواتير لطباعتها لهذا الزبون', 'warning');
+      return;
+    }
+
+    const currency = settings?.currency || 'ل.س';
+    const companyName = settings?.companyName || 'منشأة الكسارات';
+
+    const totalAmount = customerSales.reduce((sum, s) => sum + (s.totalAmount || 0), 0);
+    const totalPaid = customerSales.reduce((sum, s) => sum + (s.paidAmount || 0), 0);
+    const totalRemaining = Math.round((totalAmount - totalPaid) * 100) / 100;
+
+    const rowsHtml = customerSales.map((s, idx) => {
+      const material = materials.find(m => m.id === s.materialId);
+      const bal = Math.round(((s.totalAmount || 0) - (s.paidAmount || 0)) * 100) / 100;
+      return `<tr>
+        <td>${idx + 1}</td>
+        <td>${s.invoiceNumber || '#' + s.id}</td>
+        <td>${formatDate(s.saleDate)}</td>
+        <td>${material ? material.name : 'غير معروف'}</td>
+        <td>${s.quantity || 0} ${material ? (material.unit || '') : ''}</td>
+        <td>${formatCurrency(s.pricePerUnit, currency)}</td>
+        <td>${formatCurrency(s.totalAmount, currency)}</td>
+        <td>${formatCurrency(s.paidAmount, currency)}</td>
+        <td style="color:${bal > 0 ? '#dc2626' : '#059669'};font-weight:bold;">${formatCurrency(bal, currency)}</td>
+      </tr>`;
+    }).join('');
+
+    const printWindow = window.open('', '_blank', 'width=900,height=700');
+    if (!printWindow) {
+      if (showToast) showToast('الرجاء السماح للنوافذ المنبثقة', 'warning');
+      return;
+    }
+
+    const html = `<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>كشف حساب - ${customer.name}</title>
+    <style>
+      body{font-family:'Cairo',sans-serif;padding:2rem;direction:rtl;}
+      .sheet{max-width:1000px;margin:0 auto;}
+      .header{display:flex;justify-content:space-between;border-bottom:2px solid #333;padding-bottom:1rem;margin-bottom:1.5rem;}
+      .company-name{font-size:1.5rem;font-weight:bold;color:#1e40af;}
+      .customer-info{display:grid;grid-template-columns:1fr 1fr;gap:0.5rem;margin-bottom:1.5rem;padding:0.75rem;background:#f3f4f6;border-radius:8px;}
+      table{width:100%;border-collapse:collapse;margin:1rem 0;font-size:0.9rem;}
+      th,td{padding:0.5rem;border-bottom:1px solid #eee;text-align:right;}
+      th{background:#f3f4f6;font-weight:bold;}
+      .totals{display:flex;justify-content:flex-end;margin-top:1.5rem;}
+      .totals table{width:320px;}
+      .totals td{padding:0.4rem 0.6rem;}
+      .totals .final td{font-size:1.2rem;font-weight:bold;border-top:2px solid #333;}
+      .footer{margin-top:2rem;text-align:center;color:#666;font-size:0.8rem;border-top:1px solid #ddd;padding-top:1rem;}
+    </style></head><body>
+    <div class="sheet">
+      <div class="header">
+        <div><div class="company-name">${companyName}</div><div style="font-size:0.8rem;color:#666;">كشف حساب زبون</div></div>
+        <div style="text-align:left;"><div><strong>تاريخ الطباعة:</strong> ${new Date().toLocaleDateString('ar-EG')}</div>
+        <div><strong>عدد الفواتير:</strong> ${customerSales.length}</div></div>
+      </div>
+      <div class="customer-info">
+        <div><strong>الزبون:</strong> ${customer.name}</div>
+        <div><strong>الهاتف:</strong> ${customer.phone || '-'}</div>
+        <div><strong>العنوان:</strong> ${customer.address || '-'}</div>
+      </div>
+      <table>
+        <thead><tr><th>#</th><th>رقم الفاتورة</th><th>التاريخ</th><th>المادة</th><th>الكمية</th><th>سعر الوحدة</th><th>الإجمالي</th><th>المدفوع</th><th>المتبقي</th></tr></thead>
+        <tbody>${rowsHtml}</tbody>
+      </table>
+      <div class="totals">
+        <table>
+          <tr><td>إجمالي المشتريات:</td><td>${formatCurrency(totalAmount, currency)}</td></tr>
+          <tr><td>إجمالي المدفوع:</td><td>${formatCurrency(totalPaid, currency)}</td></tr>
+          <tr class="final" style="color:${totalRemaining > 0 ? '#dc2626' : '#059669'};"><td>الرصيد المتبقي:</td><td>${formatCurrency(totalRemaining, currency)}</td></tr>
+        </table>
+      </div>
+      <div class="footer">${companyName} - كشف حساب مطبوع بتاريخ ${new Date().toLocaleString('ar-EG')}</div>
+    </div>
+    <script>window.onload=function(){window.print();};<\/script>
+    </body></html>`;
+
+    printWindow.document.write(html);
+    printWindow.document.close();
+  };
 
   // ============================================================
   // إحصائيات الديون
@@ -506,12 +606,14 @@ function Debts({ settings, showToast }) {
                 <th>المتبقي</th>
                 <th>الحالة</th>
                 <th>ملاحظات</th>
+                <th>الإجراءات</th>
               </tr>
             </thead>
             <tbody>
               {allInvoices.map((invoice, index) => {
                 const isPaid = invoice.paymentStatus === 'paid';
                 const isPartial = invoice.paymentStatus === 'partially_paid';
+                const relatedSale = sales.find(s => invoice.items.some(it => it.saleId === s.id));
                 
                 return (
                   <tr key={invoice.id} style={{ 
@@ -552,6 +654,28 @@ function Debts({ settings, showToast }) {
                     </td>
                     <td style={{ fontSize: '0.8rem', color: 'var(--gray-500)' }}>
                       {invoice.notes ? `📝 ${invoice.notes}` : '-'}
+                    </td>
+                    <td style={{ whiteSpace: 'nowrap' }}>
+                      {relatedSale && (
+                        <>
+                          <button
+                            className="btn btn-outline btn-xs"
+                            title="طباعة هذه الفاتورة فقط"
+                            onClick={() => printCustomerStatement(relatedSale.customerId, invoice.items.map(it => it.saleId))}
+                            style={{ padding: '0.1rem 0.4rem', fontSize: '0.7rem', marginLeft: '0.25rem' }}
+                          >
+                            🖨️ هذه فقط
+                          </button>
+                          <button
+                            className="btn btn-primary btn-xs"
+                            title={`طباعة كل فواتير ${invoice.customerName}`}
+                            onClick={() => printCustomerStatement(relatedSale.customerId)}
+                            style={{ padding: '0.1rem 0.4rem', fontSize: '0.7rem' }}
+                          >
+                            🖨️ كل فواتير الزبون
+                          </button>
+                        </>
+                      )}
                     </td>
                   </tr>
                 );
@@ -606,13 +730,14 @@ function Debts({ settings, showToast }) {
                   عدد المبيعات {sortBy === 'salesCount' && (sortOrder === 'asc' ? '↑' : '↓')}
                 </th>
                 <th>آخر عملية</th>
+                <th>الإجراءات</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="7" className="text-center">⏳ جاري التحميل...</td></tr>
+                <tr><td colSpan="8" className="text-center">⏳ جاري التحميل...</td></tr>
               ) : debts.length === 0 ? (
-                <tr><td colSpan="7" className="text-center">📭 لا توجد ديون</td></tr>
+                <tr><td colSpan="8" className="text-center">📭 لا توجد ديون</td></tr>
               ) : (
                 debts.map((d, index) => (
                   <tr key={d.customerId}>
@@ -625,6 +750,16 @@ function Debts({ settings, showToast }) {
                     </td>
                     <td>{d.salesCount}</td>
                     <td>{formatDate(d.lastSale)}</td>
+                    <td>
+                      <button
+                        className="btn btn-primary btn-xs"
+                        title={`طباعة كل فواتير ${d.customerName} (${d.salesCount})`}
+                        onClick={() => printCustomerStatement(d.customerId)}
+                        style={{ padding: '0.15rem 0.5rem', fontSize: '0.75rem' }}
+                      >
+                        🖨️ طباعة الكل
+                      </button>
+                    </td>
                   </tr>
                 ))
               )}

@@ -76,21 +76,18 @@ export const DashboardService = {
     const materialMap = Object.fromEntries((materials || []).map(m => [m.id, m.name || 'غير معروف']));
 
     // حساب الديون (لكل المبيعات النشطة)
+    // ⭐ نقرأ s.paidAmount مباشرة (نفس الحقل الذي يديره SaleService بتقريب
+    // موحّد) بدل إعادة جمع جدول payments بمنطق منفصل هنا، لتفادي ظهور
+    // أرقام مختلفة عن باقي شاشات النظام (المبيعات/الديون).
     const debtMap = {};
     activeSales.forEach(s => {
       if (s?.customerId) {
         const cid = s.customerId;
         if (!debtMap[cid]) debtMap[cid] = { total: 0, paid: 0 };
         debtMap[cid].total += s.totalAmount || 0;
+        debtMap[cid].paid += s.paidAmount || 0;
       }
     });
-    (payments || [])
-      .filter(p => p && p.status !== 'cancelled')
-      .forEach(p => {
-        if (p?.customerId && debtMap[p.customerId]) {
-          debtMap[p.customerId].paid += p.amount || 0;
-        }
-      });
 
     let totalDebt = 0;
     let debtorsCount = 0;

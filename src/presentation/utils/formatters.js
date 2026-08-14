@@ -1,5 +1,5 @@
 // src/utils/formatters.js
-
+import { MIN_BALANCE } from '../../core/constants';
 // ============================================================
 // تنسيق التاريخ
 // ============================================================
@@ -37,8 +37,9 @@ export const formatDateTime = (date) => {
 };
 
 // ============================================================
-// تنسيق العملة – يعرض المبلغ مقرباً لرقمين عشريين
-// (لتجنب أخطاء الفاصلة العائمة مثل 0.009999999776)
+// تنسيق العملة – يستخدم نفس عتبة MIN_BALANCE المستخدمة في
+// SaleService.js و Sales.jsx لضمان التطابق في كل مكان
+// (لا يوجد تعارض بين "0" في الجدول و"0.02" في نافذة الدفع مثلاً)
 // ============================================================
 export const formatCurrency = (value, currency = 'ل.س') => {
   if (value === undefined || value === null || isNaN(value)) {
@@ -46,9 +47,13 @@ export const formatCurrency = (value, currency = 'ل.س') => {
   }
   const num = Number(value);
   if (!isFinite(num)) return `0 ${currency}`;
-  // تجاهل الفروق الصغيرة جداً
-  if (Math.abs(num) < 0.005) return `0 ${currency}`;
-  const rounded = Number(num.toFixed(2));
+
+  // تقريب أولاً لتفادي أخطاء الفاصلة العائمة (0.009999999...)
+  let rounded = Number(num.toFixed(2));
+
+  // نفس عتبة round2 في باقي النظام، وليس رقماً منفصلاً
+  if (Math.abs(rounded) < MIN_BALANCE) rounded = 0;
+
   if (rounded % 1 === 0) {
     return `${rounded} ${currency}`;
   }

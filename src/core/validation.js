@@ -246,10 +246,11 @@ export const Validators = {
   // ============================================================
   validateFinancial(data) {
     const errors = [];
+    const TOLERANCE = 0.01;
     
     // التحقق من أن المدفوعات لا تتجاوز المبيعات
     if (data.totalSales !== undefined && data.totalPayments !== undefined) {
-      if (data.totalPayments > data.totalSales) {
+      if (data.totalPayments > data.totalSales + TOLERANCE) {
         errors.push('إجمالي المدفوعات لا يمكن أن يتجاوز إجمالي المبيعات');
       }
     }
@@ -269,7 +270,8 @@ export const Validators = {
   // ============================================================
   validateSale(data) {
     const errors = [];
-    
+    const TOLERANCE = 0.01; // ← نفس هامش الخطأ العشري المستخدم بـ SaleService
+
     if (!data.customerId) {
       errors.push('الزبون مطلوب');
     }
@@ -294,18 +296,23 @@ export const Validators = {
       errors.push('السعر يجب أن يكون أكبر من صفر');
     }
     
-    // حساب الإجمالي
-    const total = qty * price;
+    // حساب الإجمالي – مقرّب فوراً حتى لا تتسبب أخطاء الفاصلة العائمة
+    // (مثال: 0.1 * 3 = 0.30000000000000004 بدون تقريب) برفض مدفوعات صحيحة
+    const total = Number((qty * price).toFixed(2));
     
     // التحقق من المدفوع
-    const paid = Number(data.paidAmount) || 0;
+    const paid = Number(Number(data.paidAmount || 0).toFixed(2));
     if (paid < 0) {
       errors.push('المدفوع لا يمكن أن يكون سالباً');
     }
     
-    if (paid > total) {
+    // TOLERANCE هنا ضرورية: بدونها أي فرق عشري صغير جداً (0.001) كان
+    // يُظهر خطأ "المدفوع يتجاوز الإجمالي" حتى لو المستخدم دفع المبلغ بالضبط
+    if (paid > total + TOLERANCE) {
       errors.push('المدفوع لا يمكن أن يتجاوز الإجمالي');
     }
+
+    const remainingBalance = Number((total - paid).toFixed(2));
     
     return { 
       valid: errors.length === 0, 
@@ -316,7 +323,7 @@ export const Validators = {
         pricePerUnit: price,
         paidAmount: paid,
         totalAmount: total,
-        remainingBalance: total - paid
+        remainingBalance: remainingBalance < 0 ? 0 : remainingBalance
       }
     };
   }

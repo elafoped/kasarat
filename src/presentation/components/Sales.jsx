@@ -4,9 +4,10 @@ import { db } from '../../core/database';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import { SaleService } from '../../domain/services/SaleService';
 import CustomerSearch from './CustomerSearch';
-import { Validators } from '../../core/validation'; // ✅ استيراد الفالديشن
-import { MIN_BALANCE } from '../../core/constants'; // ✅ استيراد الثابت
-// داخل Sales.jsx، بعد الاستيرادات وقبل تعريف المكون
+import { Validators } from '../../core/validation';
+import { MIN_BALANCE } from '../../core/constants';
+
+// دالة تقريب محلية
 function round2(num) {
   const n = Number(num);
   if (isNaN(n)) return 0;
@@ -14,8 +15,8 @@ function round2(num) {
   if (Math.abs(rounded) < MIN_BALANCE) return 0;
   return rounded;
 }
-function Sales({ success, error, warning, settings, onRefresh }) {
 
+function Sales({ success, error, warning, settings, onRefresh }) {
   // ============================================================
   // البيانات الأساسية
   // ============================================================
@@ -42,7 +43,7 @@ function Sales({ success, error, warning, settings, onRefresh }) {
   });
 
   // ============================================================
-  // نموذج البيع (إضافة / تعديل)
+  // نموذج البيع
   // ============================================================
   const [showModal, setShowModal] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -75,15 +76,20 @@ function Sales({ success, error, warning, settings, onRefresh }) {
   });
 
   // ============================================================
-  // الإضافة السريعة (للزبون، السيارة، المادة)
+  // الإضافة السريعة
   // ============================================================
-  const [quickAdd, setQuickAdd] = useState({
-    customer: { name: '', phone: '', address: '' },
-    vehicle: { plateNumber: '', type: '' },
-    material: { name: '', category: '', unit: '', price: 0
-      
-    }
-  });
+const [quickAdd, setQuickAdd] = useState({
+  customer: { name: '', phone: '', address: '' },
+  vehicle: { plateNumber: '', type: '' },
+  material: {
+    name: '',
+    category: '',
+    unit: '',
+    price: 0,
+    currentQuantity: 0,    // ← الكمية الأولية
+    minStock: 0            // ← الحد الأدنى
+  }
+});
   const [showQuickCustomer, setShowQuickCustomer] = useState(false);
   const [showQuickVehicle, setShowQuickVehicle] = useState(false);
   const [showQuickMaterial, setShowQuickMaterial] = useState(false);
@@ -101,18 +107,24 @@ function Sales({ success, error, warning, settings, onRefresh }) {
     try {
       setLoading(true);
       const [salesData, customersData, vehiclesData, materialsData, paymentsData] = await Promise.all([
-        db.getAll('sales'),
-        db.getAll('customers'),
-        db.getAll('vehicles'),
-        db.getAll('materials'),
-        db.getAll('payments')
+        db.getAll('sales').catch(() => []),
+        db.getAll('customers').catch(() => []),
+        db.getAll('vehicles').catch(() => []),
+        db.getAll('materials').catch(() => []),
+        db.getAll('payments').catch(() => [])
       ]);
-      setSales(salesData);
-      setCustomers(customersData);
-      setVehicles(vehiclesData);
-      setMaterials(materialsData);
-      setPayments(paymentsData);
+      setSales(salesData || []);
+      setCustomers(customersData || []);
+      setVehicles(vehiclesData || []);
+      setMaterials(materialsData || []);
+      setPayments(paymentsData || []);
     } catch (e) {
+      console.error('خطأ في تحميل البيانات:', e);
+      setSales([]);
+      setCustomers([]);
+      setVehicles([]);
+      setMaterials([]);
+      setPayments([]);
       if (error) error('خطأ في تحميل البيانات: ' + e.message);
     } finally {
       setLoading(false);
@@ -124,15 +136,15 @@ function Sales({ success, error, warning, settings, onRefresh }) {
   }, [loadData]);
 
   // ============================================================
-  // السيارات المفلترة حسب الزبون المختار
+  // السيارات المفلترة حسب الزبون
   // ============================================================
   const getFilteredVehicles = useCallback(() => {
-    if (!formData.customerId) return vehicles;
-    return vehicles.filter(v => v.customerId === parseInt(formData.customerId));
+    if (!formData.customerId) return vehicles || [];
+    return (vehicles || []).filter(v => v.customerId === parseInt(formData.customerId));
   }, [vehicles, formData.customerId]);
 
   // ============================================================
-  // دوال الإضافة السريعة – تحفظ البيانات في قاعدة البيانات
+  // دوال الإضافة السريعة
   // ============================================================
   const handleQuickAddCustomer = async () => {
     const { name, phone, address } = quickAdd.customer;
@@ -146,7 +158,7 @@ function Sales({ success, error, warning, settings, onRefresh }) {
       };
       const id = await db.add('customers', newCustomer);
       const added = { ...newCustomer, id };
-      setCustomers(prev => [...prev, added]); // تحديث القائمة فوراً
+      setCustomers(prev => [...prev, added]);
       setFormData(prev => ({ ...prev, customerId: id }));
       setShowQuickCustomer(false);
       setQuickAdd(prev => ({ ...prev, customer: { name: '', phone: '', address: '' } }));
@@ -167,7 +179,7 @@ function Sales({ success, error, warning, settings, onRefresh }) {
       };
       const id = await db.add('vehicles', newVehicle);
       const added = { ...newVehicle, id };
-      setVehicles(prev => [...prev, added]); // تحديث القائمة فوراً
+      setVehicles(prev => [...prev, added]);
       setFormData(prev => ({ ...prev, vehicleId: id }));
       setShowQuickVehicle(false);
       setQuickAdd(prev => ({ ...prev, vehicle: { plateNumber: '', type: '' } }));
@@ -175,32 +187,42 @@ function Sales({ success, error, warning, settings, onRefresh }) {
     } catch (e) { if (error) error('❌ خطأ: ' + e.message); }
   };
 
-const handleQuickAddMaterial = async () => {
-  const { name, category, unit, price } = quickAdd.material;
+ const handleQuickAddMaterial = async () => {
+  const { name, category, unit, price, currentQuantity, minStock } = quickAdd.material;
+  
+  // التحقق من الحقول الإجبارية
   if (!name.trim()) { if (warning) warning('اسم المادة مطلوب'); return; }
   if (price <= 0) { if (warning) warning('السعر يجب أن يكون أكبر من صفر'); return; }
+  // الكمية والحد الأدنى اختياريان (يمكن أن يكونا 0)
+  
   try {
     const newMaterial = {
       name: name.trim(),
-      category: category.trim(),
-      unit: unit.trim(),
-      price: Number(price) || 0,
-      currentQuantity: 0, // تلقائياً صفر
-      minStock: 0,        // تلقائياً صفر
+      category: category.trim() || 'عام',
+      unit: unit.trim() || 'قطعة',
+      price: Number(price),
+      currentQuantity: Number(currentQuantity) || 0,
+      minStock: Number(minStock) || 0,
       createdAt: new Date().toISOString()
     };
     const id = await db.add('materials', newMaterial);
     const added = { ...newMaterial, id };
+    
     setMaterials(prev => [...prev, added]);
-    setFormData(prev => ({ ...prev, materialId: id, pricePerUnit: added.price || 0 }));
+    setFormData(prev => ({ ...prev, materialId: id, pricePerUnit: added.price }));
     setShowQuickMaterial(false);
-    setQuickAdd(prev => ({ ...prev, material: { name: '', category: '', unit: '', price: 0 } }));
+    setQuickAdd(prev => ({
+      ...prev,
+      material: { name: '', category: '', unit: '', price: 0, currentQuantity: 0, minStock: 0 }
+    }));
     if (success) success('✅ تم إضافة المادة بنجاح');
-  } catch (e) { if (error) error('❌ خطأ: ' + e.message); }
+  } catch (e) {
+    if (error) error('❌ خطأ: ' + e.message);
+  }
 };
 
   // ============================================================
-  // دوال نموذج البيع (فتح، إغلاق، حفظ)
+  // دوال نموذج البيع
   // ============================================================
   const openEditModal = (sale) => {
     setEditingSale(sale);
@@ -255,61 +277,52 @@ const handleQuickAddMaterial = async () => {
     return Object.keys(newErrors).length === 0;
   };
 
-const handleSave = async () => {
-  setErrors({});
-  
-  // التحقق من صحة النموذج الأساسي
-  if (!validateForm()) {
-    const firstError = Object.values(errors)[0];
-    if (warning) warning(firstError);
-    return;
-  }
-  
-  if (isSubmitting) return;
-  setIsSubmitting(true);
-  
-  try {
-    const saleData = {
-      customerId: parseInt(formData.customerId),
-      vehicleId: parseInt(formData.vehicleId),
-      materialId: parseInt(formData.materialId),
-      quantity: Number(formData.quantity),
-      pricePerUnit: Number(formData.pricePerUnit),
-      paidAmount: Number(formData.paidAmount) || 0,
-      notes: formData.notes,
-      paymentMethod: 'نقدي'
-    };
-    
-    // استخدام Validators للتحقق من المدفوع مقابل الإجمالي مع تسامح 0.01
-    const validation = Validators.validateSale(saleData);
-    if (!validation.valid) {
-      validation.errors.forEach(err => warning(err));
+  const handleSave = async () => {
+    setErrors({});
+    if (!validateForm()) {
+      const firstError = Object.values(errors)[0];
+      if (warning) warning(firstError);
       return;
     }
-    
-    // استخدام البيانات المُصحّحة (قد يتم ضبط paidAmount إذا كان الفرق بسيطاً)
-    const validatedData = validation.data;
-    
-    if (editingSale) {
-      await SaleService.updateSale(editingSale.id, validatedData);
-      if (success) success('✅ تم تعديل البيع بنجاح');
-    } else {
-      await SaleService.createSale(validatedData);
-      if (success) success('✅ تم تسجيل البيع وإنشاء الفاتورة والدفعة تلقائياً');
+    if (isSubmitting) return;
+    setIsSubmitting(true);
+    try {
+      const saleData = {
+        customerId: parseInt(formData.customerId),
+        vehicleId: parseInt(formData.vehicleId),
+        materialId: parseInt(formData.materialId),
+        quantity: Number(formData.quantity),
+        pricePerUnit: Number(formData.pricePerUnit),
+        paidAmount: Number(formData.paidAmount) || 0,
+        notes: formData.notes,
+        paymentMethod: 'نقدي'
+      };
+      const validation = Validators.validateSale(saleData);
+      if (!validation.valid) {
+        validation.errors.forEach(err => warning(err));
+        return;
+      }
+      const validatedData = validation.data;
+      if (editingSale) {
+        await SaleService.updateSale(editingSale.id, validatedData);
+        if (success) success('✅ تم تعديل البيع بنجاح');
+      } else {
+        await SaleService.createSale(validatedData);
+        if (success) success('✅ تم تسجيل البيع وإنشاء الفاتورة والدفعة تلقائياً');
+      }
+      setShowModal(false);
+      setEditingSale(null);
+      setFormData({ customerId: '', vehicleId: '', materialId: '', quantity: 1, pricePerUnit: 0, paidAmount: 0, notes: '' });
+      setErrors({});
+      await loadData();
+      if (onRefresh) onRefresh();
+    } catch (e) {
+      if (error) error('❌ خطأ: ' + e.message);
+    } finally {
+      setIsSubmitting(false);
     }
-    
-    setShowModal(false);
-    setEditingSale(null);
-    setFormData({ customerId: '', vehicleId: '', materialId: '', quantity: 1, pricePerUnit: 0, paidAmount: 0, notes: '' });
-    setErrors({});
-    await loadData();
-    if (onRefresh) onRefresh();
-  } catch (e) {
-    if (error) error('❌ خطأ: ' + e.message);
-  } finally {
-    setIsSubmitting(false);
-  }
-};
+  };
+
   const handleCancelSale = async (id) => {
     const reason = window.prompt('أدخل سبب الإلغاء:');
     if (reason === null) return;
@@ -323,21 +336,37 @@ const handleSave = async () => {
   };
 
   // ============================================================
-  // حساب ديون الزبون
+  // حساب ديون الزبون (إصدار كامل)
   // ============================================================
-const calculateCustomerDebt = useCallback((customerId) => {
-  const customerSales = sales.filter(s => s.customerId === customerId && s.status === 'active');
-  const totalSales = customerSales.reduce((sum, s) => sum + round2(s.totalAmount || 0), 0);
-  const totalPaid = customerSales.reduce((sum, s) => sum + round2(s.paidAmount || 0), 0);
-  let totalRemaining = round2(totalSales - totalPaid);
-  if (totalRemaining < MIN_BALANCE) totalRemaining = 0;
+  const calculateCustomerDebt = useCallback((customerId) => {
+    const customerSales = (sales || []).filter(s => s.customerId === customerId && s.status === 'active');
+    const totalSales = customerSales.reduce((sum, s) => sum + round2(s.totalAmount || 0), 0);
+    const totalPaid = customerSales.reduce((sum, s) => sum + round2(s.paidAmount || 0), 0);
+    let totalRemaining = round2(totalSales - totalPaid);
+    if (totalRemaining < MIN_BALANCE) totalRemaining = 0;
 
-  const unpaidInvoices = customerSales
-    .filter(s => round2(s.remainingBalance || 0) > MIN_BALANCE)
-    .map(s => ({ /* ... */ }));
+    const unpaidInvoices = customerSales
+      .filter(s => round2(s.remainingBalance || 0) > MIN_BALANCE)
+      .map(s => ({
+        invoiceNumber: s.invoiceNumber || '#' + s.id,
+        date: s.saleDate,
+        total: round2(s.totalAmount || 0),
+        paid: round2(s.paidAmount || 0),
+        remaining: round2(s.remainingBalance || 0),
+        id: s.id
+      }));
 
-  return { /* ... */ };
-}, [sales]);
+    return {
+      customerId,
+      totalSales: round2(totalSales),
+      totalPaid: round2(totalPaid),
+      remaining: totalRemaining,
+      unpaidInvoices,
+      invoiceCount: customerSales.length,
+      paymentCount: 0
+    };
+  }, [sales]);
+
   // ============================================================
   // دوال الدفعة الجديدة
   // ============================================================
@@ -381,70 +410,91 @@ const calculateCustomerDebt = useCallback((customerId) => {
   };
 
   const validatePaymentForm = () => {
-  const newErrors = {};
-  if (!paymentForm.customerId) newErrors.customerId = 'الزبون مطلوب';
-  if (paymentForm.amount <= 0) newErrors.amount = 'المبلغ يجب أن يكون أكبر من صفر';
-  
-  if (customerDebtDetails) {
-    if (customerDebtDetails.remaining < MIN_BALANCE) {
-      newErrors.amount = 'لا يوجد رصيد مستحق (أقل من 0.05 ل.س)';
-    } else if (paymentForm.amount > customerDebtDetails.remaining + 0.01) {
-      newErrors.amount = `المبلغ (${formatCurrency(paymentForm.amount, settings?.currency || 'ل.س')}) يتجاوز الرصيد المتبقي (${formatCurrency(customerDebtDetails.remaining, settings?.currency || 'ل.س')})`;
+    const newErrors = {};
+    if (!paymentForm.customerId) newErrors.customerId = 'الزبون مطلوب';
+    if (paymentForm.amount <= 0) newErrors.amount = 'المبلغ يجب أن يكون أكبر من صفر';
+    if (customerDebtDetails) {
+      if (customerDebtDetails.remaining < MIN_BALANCE) {
+        newErrors.amount = 'لا يوجد رصيد مستحق (أقل من 0.05 ل.س)';
+      } else if (paymentForm.amount > customerDebtDetails.remaining + 0.01) {
+        newErrors.amount = `المبلغ (${formatCurrency(paymentForm.amount, settings?.currency || 'ل.س')}) يتجاوز الرصيد المتبقي (${formatCurrency(customerDebtDetails.remaining, settings?.currency || 'ل.س')})`;
+      }
     }
-  }
-  
-  setPaymentErrors(newErrors);
-  return Object.keys(newErrors).length === 0;
-};
+    setPaymentErrors(newErrors);
+    return Object.keys(newErrors).length === 0;
+  };
 
- const handlePaymentSubmit = async () => {
-  setPaymentErrors({});
-  if (!validatePaymentForm()) {
-    const firstError = Object.values(paymentErrors)[0];
-    if (warning) warning(firstError);
-    return;
-  }
-  if (paymentSubmitting) return;
-  setPaymentSubmitting(true);
-  try {
-    await SaleService.recordPayment({
-      customerId: parseInt(paymentForm.customerId),
-      amount: Number(paymentForm.amount),
-      method: paymentForm.method,
-      notes: paymentForm.notes || '',
-      paymentDate: paymentForm.paymentDate || new Date().toISOString()
-    });
-    if (success) success('✅ تم تسجيل الدفعة وتوزيعها على الفواتير تلقائياً');
-
-    // تحديث فوري للبيانات
-    const [salesData, paymentsData] = await Promise.all([
-      db.getAll('sales'),
-      db.getAll('payments')
-    ]);
-    setSales(salesData);
-    setPayments(paymentsData);
-    // ... (باقي التحديث)
-  } catch (e) {
-    // ⚡ معالجة رسالة حذف الديون الصغيرة
-    if (e.message && e.message.includes('تم حذف الرصيد المتبقي الصغير')) {
-      if (warning) warning('⚠️ ' + e.message);
-      // إعادة تحميل البيانات لإظهار التغييرات
-      await loadData();
-    } else {
-      if (error) error('❌ خطأ: ' + e.message);
+  const handlePaymentSubmit = async () => {
+    setPaymentErrors({});
+    if (!validatePaymentForm()) {
+      const firstError = Object.values(paymentErrors)[0];
+      if (warning) warning(firstError);
+      return;
     }
-  } finally {
-    setPaymentSubmitting(false);
-  }
-};
+    if (paymentSubmitting) return;
+    setPaymentSubmitting(true);
+    try {
+      await SaleService.recordPayment({
+        customerId: parseInt(paymentForm.customerId),
+        amount: Number(paymentForm.amount),
+        method: paymentForm.method,
+        notes: paymentForm.notes || '',
+        paymentDate: paymentForm.paymentDate || new Date().toISOString()
+      });
+      if (success) success('✅ تم تسجيل الدفعة وتوزيعها على الفواتير تلقائياً');
+
+      const [salesData, paymentsData] = await Promise.all([
+        db.getAll('sales').catch(() => []),
+        db.getAll('payments').catch(() => [])
+      ]);
+      setSales(salesData || []);
+      setPayments(paymentsData || []);
+
+      const [customersData, vehiclesData, materialsData] = await Promise.all([
+        db.getAll('customers').catch(() => []),
+        db.getAll('vehicles').catch(() => []),
+        db.getAll('materials').catch(() => [])
+      ]);
+      setCustomers(customersData || []);
+      setVehicles(vehiclesData || []);
+      setMaterials(materialsData || []);
+
+      if (selectedPaymentCustomer) {
+        const debt = calculateCustomerDebt(selectedPaymentCustomer.id);
+        setCustomerDebtDetails(debt);
+      }
+
+      setShowPaymentModal(false);
+      setSelectedPaymentCustomer(null);
+      setCustomerDebtDetails(null);
+      setPaymentForm({
+        customerId: '',
+        amount: 0,
+        method: 'نقدي',
+        notes: '',
+        paymentDate: new Date().toISOString().split('T')[0]
+      });
+
+      if (onRefresh) onRefresh();
+    } catch (e) {
+      if (e.message && e.message.includes('تم حذف الرصيد المتبقي الصغير')) {
+        if (warning) warning('⚠️ ' + e.message);
+        await loadData();
+      } else {
+        if (error) error('❌ خطأ: ' + e.message);
+      }
+    } finally {
+      setPaymentSubmitting(false);
+    }
+  };
 
   // ============================================================
   // طباعة الفاتورة
   // ============================================================
   const printInvoice = (sale) => {
-    const customer = customers.find(c => c.id === sale.customerId);
-    const material = materials.find(m => m.id === sale.materialId);
-    const vehicle = vehicles.find(v => v.id === sale.vehicleId);
+    const customer = (customers || []).find(c => c.id === sale.customerId);
+    const material = (materials || []).find(m => m.id === sale.materialId);
+    const vehicle = (vehicles || []).find(v => v.id === sale.vehicleId);
     const printWindow = window.open('', '_blank', 'width=800,height=600');
     if (!printWindow) { if (warning) warning('الرجاء السماح للنوافذ المنبثقة'); return; }
     const currency = settings?.currency || 'ل.س';
@@ -487,17 +537,17 @@ const calculateCustomerDebt = useCallback((customerId) => {
   };
 
   // ============================================================
-  // دالة الفلترة
+  // دالة الفلترة (مع حماية المصفوفات)
   // ============================================================
   const getFilteredSales = useCallback(() => {
-    let filtered = [...sales];
+    let filtered = [...(sales || [])];
     if (filters.search) {
       const q = filters.search.trim().toLowerCase();
       filtered = filtered.filter(s => {
         if (!q) return true;
-        const c = customers.find(a => a.id === s.customerId);
-        const m = materials.find(a => a.id === s.materialId);
-        const v = vehicles.find(a => a.id === s.vehicleId);
+        const c = (customers || []).find(a => a.id === s.customerId);
+        const m = (materials || []).find(a => a.id === s.materialId);
+        const v = (vehicles || []).find(a => a.id === s.vehicleId);
         return (s.invoiceNumber || '').toLowerCase().includes(q) ||
           (c && c.name && c.name.toLowerCase().includes(q)) ||
           (m && m.name && m.name.toLowerCase().includes(q)) ||
@@ -523,7 +573,7 @@ const calculateCustomerDebt = useCallback((customerId) => {
     return filtered;
   }, [sales, customers, materials, vehicles, filters]);
 
-  const filteredSales = getFilteredSales();
+  const filteredSales = loading ? [] : getFilteredSales();
   const filteredVehicles = getFilteredVehicles();
 
   const clearFilters = () => {
@@ -534,153 +584,156 @@ const calculateCustomerDebt = useCallback((customerId) => {
   };
 
   const getCustomerName = (id) => {
-    const c = customers.find(c => c.id === id);
+    const c = (customers || []).find(c => c.id === id);
     return c ? c.name : 'غير معروف';
   };
   const getMaterialName = (id) => {
-    const m = materials.find(m => m.id === id);
+    const m = (materials || []).find(m => m.id === id);
     return m ? m.name : 'غير معروف';
   };
   const getVehiclePlate = (id) => {
-    const v = vehicles.find(v => v.id === id);
+    const v = (vehicles || []).find(v => v.id === id);
     return v ? v.plateNumber : 'غير معروف';
   };
 
   // ============================================================
-  // التصيير
+  // التصيير (مع حماية كل المصفوفات)
   // ============================================================
   return (
     <div className="page-section active">
       {/* شريط الفلترة */}
-     {/* ============================================================ */}
-{/* شريط الفلترة المتقدمة – سطر واحد مرتب */}
-{/* ============================================================ */}
-<div className="card" style={{ marginBottom: '0.5rem', padding: '0.4rem 0.6rem' }}>
-  <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.3rem' }}>
-    {/* بحث */}
-    <div className="search-box" style={{ flex: '2 1 150px', minWidth: '120px' }}>
-      <span>🔍</span>
-      <input
-        type="text"
-        value={filters.search}
-        onChange={(e) => setFilters({ ...filters, search: e.target.value })}
-        placeholder="بحث..."
-        style={{ padding: '0.2rem 0.4rem', fontSize: '0.75rem' }}
-      />
-    </div>
+      <div className="card" style={{ marginBottom: '0.5rem', padding: '0.4rem 0.6rem' }}>
+        <div style={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: '0.3rem' }}>
+          {/* بحث */}
+          <div className="search-box" style={{ flex: '2 1 150px', minWidth: '120px' }}>
+            <span>🔍</span>
+            <input
+              type="text"
+              value={filters.search}
+              onChange={(e) => setFilters({ ...filters, search: e.target.value })}
+              placeholder="بحث..."
+              style={{ padding: '0.2rem 0.4rem', fontSize: '0.75rem' }}
+            />
+          </div>
 
-    {/* التاريخ من */}
-    <input
-      type="date"
-      className="form-control"
-      style={{ width: '110px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
-      value={filters.dateFrom}
-      onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
-      title="من تاريخ"
-    />
-    <span style={{ fontSize: '0.7rem' }}>→</span>
+          {/* التاريخ من */}
+          <input
+            type="date"
+            className="form-control"
+            style={{ width: '110px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
+            value={filters.dateFrom}
+            onChange={(e) => setFilters({ ...filters, dateFrom: e.target.value })}
+            title="من تاريخ"
+          />
+          <span style={{ fontSize: '0.7rem' }}>→</span>
 
-    {/* التاريخ إلى */}
-    <input
-      type="date"
-      className="form-control"
-      style={{ width: '110px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
-      value={filters.dateTo}
-      onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
-      title="إلى تاريخ"
-    />
+          {/* التاريخ إلى */}
+          <input
+            type="date"
+            className="form-control"
+            style={{ width: '110px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
+            value={filters.dateTo}
+            onChange={(e) => setFilters({ ...filters, dateTo: e.target.value })}
+            title="إلى تاريخ"
+          />
 
-    {/* الحالة */}
-    <select
-      className="form-control"
-      style={{ width: '100px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
-      value={filters.status}
-      onChange={(e) => setFilters({ ...filters, status: e.target.value })}
-    >
-      <option value="all">📋 الكل</option>
-      <option value="active">✅ نشط</option>
-      <option value="cancelled">❌ ملغى</option>
-      <option value="unpaid">⏳ غير مكتمل</option>
-    </select>
+          {/* الحالة */}
+          <select
+            className="form-control"
+            style={{ width: '100px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
+            value={filters.status}
+            onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+          >
+            <option value="all">📋 الكل</option>
+            <option value="active">✅ نشط</option>
+            <option value="cancelled">❌ ملغى</option>
+            <option value="unpaid">⏳ غير مكتمل</option>
+          </select>
 
-    {/* الزبون */}
-    <select
-      className="form-control"
-      style={{ width: '120px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
-      value={filters.customerId}
-      onChange={(e) => setFilters({ ...filters, customerId: e.target.value })}
-    >
-      <option value="">👤 الزبون</option>
-      {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-    </select>
+          {/* الزبون */}
+          <select
+            className="form-control"
+            style={{ width: '120px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
+            value={filters.customerId}
+            onChange={(e) => setFilters({ ...filters, customerId: e.target.value })}
+          >
+            <option value="">👤 الزبون</option>
+            {(customers || []).map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
 
-    {/* المادة */}
-    <select
-      className="form-control"
-      style={{ width: '120px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
-      value={filters.materialId}
-      onChange={(e) => setFilters({ ...filters, materialId: e.target.value })}
-    >
-      <option value="">🧱 المادة</option>
-      {materials.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
-    </select>
+          {/* المادة */}
+          <select
+            className="form-control"
+            style={{ width: '120px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
+            value={filters.materialId}
+            onChange={(e) => setFilters({ ...filters, materialId: e.target.value })}
+          >
+            <option value="">🧱 المادة</option>
+            {(materials || []).map(m => (
+              <option key={m.id} value={m.id}>{m.name}</option>
+            ))}
+          </select>
 
-    {/* السيارة */}
-    <select
-      className="form-control"
-      style={{ width: '110px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
-      value={filters.vehicleId}
-      onChange={(e) => setFilters({ ...filters, vehicleId: e.target.value })}
-    >
-      <option value="">🚗 السيارة</option>
-      {vehicles.map(v => <option key={v.id} value={v.id}>{v.plateNumber}</option>)}
-    </select>
+          {/* السيارة */}
+          <select
+            className="form-control"
+            style={{ width: '110px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
+            value={filters.vehicleId}
+            onChange={(e) => setFilters({ ...filters, vehicleId: e.target.value })}
+          >
+            <option value="">🚗 السيارة</option>
+            {(vehicles || []).map(v => (
+              <option key={v.id} value={v.id}>{v.plateNumber}</option>
+            ))}
+          </select>
 
-    {/* المبلغ – من */}
-    <input
-      type="number"
-      className="form-control"
-      style={{ width: '70px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
-      placeholder="من"
-      value={filters.minAmount}
-      onChange={(e) => setFilters({ ...filters, minAmount: e.target.value })}
-    />
-    <span style={{ fontSize: '0.7rem' }}>→</span>
+          {/* المبلغ – من */}
+          <input
+            type="number"
+            className="form-control"
+            style={{ width: '70px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
+            placeholder="من"
+            value={filters.minAmount}
+            onChange={(e) => setFilters({ ...filters, minAmount: e.target.value })}
+          />
+          <span style={{ fontSize: '0.7rem' }}>→</span>
 
-    {/* المبلغ – إلى */}
-    <input
-      type="number"
-      className="form-control"
-      style={{ width: '70px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
-      placeholder="إلى"
-      value={filters.maxAmount}
-      onChange={(e) => setFilters({ ...filters, maxAmount: e.target.value })}
-    />
+          {/* المبلغ – إلى */}
+          <input
+            type="number"
+            className="form-control"
+            style={{ width: '70px', padding: '0.15rem 0.3rem', fontSize: '0.75rem' }}
+            placeholder="إلى"
+            value={filters.maxAmount}
+            onChange={(e) => setFilters({ ...filters, maxAmount: e.target.value })}
+          />
 
-    {/* زر مسح الفلترة */}
-    <button
-      className="btn btn-outline btn-xs"
-      onClick={clearFilters}
-      style={{ padding: '0.1rem 0.5rem', fontSize: '0.7rem' }}
-    >
-      ✖ مسح
-    </button>
+          {/* زر مسح الفلترة */}
+          <button
+            className="btn btn-outline btn-xs"
+            onClick={clearFilters}
+            style={{ padding: '0.1rem 0.5rem', fontSize: '0.7rem' }}
+          >
+            ✖ مسح
+          </button>
 
-    {/* زر تحديث */}
-    <button
-      className="btn btn-outline btn-xs"
-      onClick={loadData}
-      style={{ padding: '0.1rem 0.5rem', fontSize: '0.7rem' }}
-    >
-      🔄
-    </button>
+          {/* زر تحديث */}
+          <button
+            className="btn btn-outline btn-xs"
+            onClick={loadData}
+            style={{ padding: '0.1rem 0.5rem', fontSize: '0.7rem' }}
+          >
+            🔄
+          </button>
 
-    {/* عدد النتائج */}
-    <span style={{ fontSize: '0.7rem', color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>
-      📊 {filteredSales.length} من {sales.length}
-    </span>
-  </div>
-</div>
+          {/* عدد النتائج */}
+          <span style={{ fontSize: '0.7rem', color: 'var(--gray-500)', whiteSpace: 'nowrap' }}>
+            📊 {filteredSales?.length || 0} من {sales?.length || 0}
+          </span>
+        </div>
+      </div>
 
       {/* شريط الأدوات */}
       <div className="toolbar" style={{ marginBottom: '0.5rem' }}>
@@ -688,19 +741,27 @@ const calculateCustomerDebt = useCallback((customerId) => {
         <button className="btn btn-success btn-sm" onClick={openPaymentModal}>💵 دفعة جديدة</button>
         <div className="spacer"></div>
         <span className="text-muted" style={{ fontSize: '0.7rem' }}>
-          {sales.filter(s => s.status === 'active').length} مبيعات نشطة
+          {(sales || []).filter(s => s.status === 'active').length} مبيعات نشطة
         </span>
       </div>
 
+      {/* إحصائيات سريعة */}
       <div className="stats-mini" style={{ marginBottom: '0.5rem', fontSize: '0.8rem' }}>
-        <div className="stat-item"><div className="label">💰 إجمالي المبيعات</div><div className="value">{sales.length}</div></div>
-        <div className="stat-item success"><div className="label">✅ النشطة</div><div className="value">{sales.filter(s => s.status === 'active').length}</div></div>
-        <div className="stat-item"><div className="label">📊 النتائج المفلترة</div><div className="value">{filteredSales.length}</div></div>
+        <div className="stat-item">
+          <div className="label">💰 إجمالي المبيعات</div>
+          <div className="value">{sales?.length || 0}</div>
+        </div>
+        <div className="stat-item success">
+          <div className="label">✅ النشطة</div>
+          <div className="value">{(sales || []).filter(s => s.status === 'active').length}</div>
+        </div>
+        <div className="stat-item">
+          <div className="label">📊 النتائج المفلترة</div>
+          <div className="value">{filteredSales?.length || 0}</div>
+        </div>
       </div>
 
-      {/* ============================================================ */}
       {/* جدول المبيعات */}
-      {/* ============================================================ */}
       <div className="card" style={{ padding: '0.25rem' }}>
         <div className="table-wrap" style={{ overflowX: 'auto', fontSize: '0.7rem' }}>
           <table style={{ fontSize: '0.7rem' }}>
@@ -758,7 +819,6 @@ const calculateCustomerDebt = useCallback((customerId) => {
                       <td style={{ padding: '0.2rem 0.3rem' }}>
                         {s.status === 'active' && (
                           <>
-                            <button className="btn btn-warning btn-xs" onClick={() => openEditModal(s)} title="تعديل" style={{ padding: '0.05rem 0.3rem', fontSize: '0.6rem' }}>✏️</button>
                             <button className="btn btn-primary btn-xs" onClick={() => printInvoice(s)} title="طباعة" style={{ padding: '0.05rem 0.3rem', fontSize: '0.6rem' }}>🖨️</button>
                             <button className="btn btn-danger btn-xs" onClick={() => handleCancelSale(s.id)} title="إلغاء" style={{ padding: '0.05rem 0.3rem', fontSize: '0.6rem' }}>❌</button>
                           </>
@@ -774,7 +834,7 @@ const calculateCustomerDebt = useCallback((customerId) => {
       </div>
 
       {/* ============================================================ */}
-      {/* Modal البيع – يحتوي على جميع حقول الإضافة السريعة */}
+      {/* Modal البيع */}
       {/* ============================================================ */}
       {showModal && (
         <div className="modal-overlay open" onClick={(e) => { if (e.target === e.currentTarget && !isSubmitting) closeModal(); }}>
@@ -799,7 +859,9 @@ const calculateCustomerDebt = useCallback((customerId) => {
                     style={{ flex: 1 }}
                   >
                     <option value="">-- اختر زبون --</option>
-                    {customers.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    {(customers || []).map(c => (
+                      <option key={c.id} value={c.id}>{c.name}</option>
+                    ))}
                   </select>
                   <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowQuickCustomer(true)} disabled={isSubmitting}>➕ جديد</button>
                 </div>
@@ -837,10 +899,12 @@ const calculateCustomerDebt = useCallback((customerId) => {
                     style={{ flex: 1 }}
                   >
                     <option value="">-- اختر سيارة --</option>
-                    {filteredVehicles.length === 0 ? (
+                    {(filteredVehicles || []).length === 0 ? (
                       <option value="" disabled>⚠️ لا توجد سيارات لهذا الزبون</option>
                     ) : (
-                      filteredVehicles.map(v => <option key={v.id} value={v.id}>🚗 {v.plateNumber} {v.type ? `(${v.type})` : ''}</option>)
+                      (filteredVehicles || []).map(v => (
+                        <option key={v.id} value={v.id}>🚗 {v.plateNumber} {v.type ? `(${v.type})` : ''}</option>
+                      ))
                     )}
                   </select>
                   <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowQuickVehicle(true)} disabled={isSubmitting || !formData.customerId}>➕ جديد</button>
@@ -863,56 +927,85 @@ const calculateCustomerDebt = useCallback((customerId) => {
                 )}
               </div>
 
-          {/* ===== المادة ===== */}
-<div className="form-group">
-  <label>المادة <span className="required">*</span></label>
-  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
-    <select
-      className={`form-control ${errors.materialId ? 'is-invalid' : ''}`}
-      value={formData.materialId}
-      onChange={(e) => {
-        const mid = parseInt(e.target.value);
-        const material = materials.find(m => m.id === mid);
-        setFormData({ ...formData, materialId: mid, pricePerUnit: material?.price || 0 });
-        if (errors.materialId) setErrors({ ...errors, materialId: '' });
-        if (errors.stock) setErrors({ ...errors, stock: '' });
-      }}
-      disabled={isSubmitting}
-      style={{ flex: 1 }}
-    >
-      <option value="">-- اختر مادة --</option>
-      {materials.map(m => (
-        <option key={m.id} value={m.id}>
-          {m.name} (المخزون: {m.currentQuantity || 0} {m.unit || ''})
-        </option>
-      ))}
-    </select>
-    <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowQuickMaterial(true)} disabled={isSubmitting}>➕ جديد</button>
-  </div>
-  {errors.materialId && <div className="error-text">{errors.materialId}</div>}
-  {errors.stock && <div className="error-text text-danger">{errors.stock}</div>}
-{showQuickMaterial && (
-  <div style={{ marginTop: '0.5rem', padding: '0.5rem', border: '1px solid var(--gray-300)', borderRadius: 'var(--radius)' }}>
+              {/* ===== المادة ===== */}
+              <div className="form-group">
+                <label>المادة <span className="required">*</span></label>
+                <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center' }}>
+                  <select
+                    className={`form-control ${errors.materialId ? 'is-invalid' : ''}`}
+                    value={formData.materialId}
+                    onChange={(e) => {
+                      const mid = parseInt(e.target.value);
+                      const material = (materials || []).find(m => m.id === mid);
+                      setFormData({ ...formData, materialId: mid, pricePerUnit: material?.price || 0 });
+                      if (errors.materialId) setErrors({ ...errors, materialId: '' });
+                      if (errors.stock) setErrors({ ...errors, stock: '' });
+                    }}
+                    disabled={isSubmitting}
+                    style={{ flex: 1 }}
+                  >
+                    <option value="">-- اختر مادة --</option>
+                    {(materials || []).map(m => (
+                      <option key={m.id} value={m.id}>
+                        {m.name} (المخزون: {m.currentQuantity || 0} {m.unit || ''})
+                      </option>
+                    ))}
+                  </select>
+                  <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowQuickMaterial(true)} disabled={isSubmitting}>➕ جديد</button>
+                </div>
+                {errors.materialId && <div className="error-text">{errors.materialId}</div>}
+                {errors.stock && <div className="error-text text-danger">{errors.stock}</div>}
+             {showQuickMaterial && (
+  <div style={{ marginTop: '0.5rem', padding: '0.75rem', border: '1px solid var(--gray-300)', borderRadius: 'var(--radius)', background: 'var(--gray-50)' }}>
+    <div style={{ fontWeight: 'bold', marginBottom: '0.5rem', fontSize: '0.9rem' }}>➕ إضافة مادة جديدة</div>
     <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.5rem' }}>
-      <input className="form-control" placeholder="الاسم *" value={quickAdd.material.name}
-        onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, name: e.target.value } }))} />
-      <input className="form-control" placeholder="التصنيف" value={quickAdd.material.category}
-        onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, category: e.target.value } }))} />
-      <input className="form-control" placeholder="الوحدة (مثل: طن، كيس)" value={quickAdd.material.unit}
-        onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, unit: e.target.value } }))} />
-      <input className="form-control" type="number" placeholder="السعر *" value={quickAdd.material.price}
-        onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, price: parseFloat(e.target.value) || 0 } }))} />
+      {/* الاسم */}
+      <div>
+        <label style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>الاسم <span style={{ color: 'red' }}>*</span></label>
+        <input className="form-control" placeholder="مثال: أسمنت" value={quickAdd.material.name}
+          onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, name: e.target.value } }))} />
+      </div>
+      {/* التصنيف */}
+      <div>
+        <label style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>التصنيف</label>
+        <input className="form-control" placeholder="مثال: بناء" value={quickAdd.material.category}
+          onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, category: e.target.value } }))} />
+      </div>
+      {/* الوحدة */}
+      <div>
+        <label style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>الوحدة</label>
+        <input className="form-control" placeholder="طن، كيس، متر..." value={quickAdd.material.unit}
+          onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, unit: e.target.value } }))} />
+      </div>
+      {/* السعر */}
+      <div>
+        <label style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>السعر <span style={{ color: 'red' }}>*</span></label>
+        <input className="form-control" type="number" step="0.01" min="0" placeholder="مثال: 5000" value={quickAdd.material.price}
+          onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, price: parseFloat(e.target.value) || 0 } }))} />
+      </div>
+      {/* الكمية الأولية */}
+      <div>
+        <label style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>الكمية الأولية</label>
+        <input className="form-control" type="number" step="0.01" min="0" placeholder="المخزون الابتدائي" value={quickAdd.material.currentQuantity}
+          onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, currentQuantity: parseFloat(e.target.value) || 0 } }))} />
+      </div>
+      {/* الحد الأدنى */}
+      <div>
+        <label style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>الحد الأدنى للمخزون</label>
+        <input className="form-control" type="number" step="0.01" min="0" placeholder="مثال: 10" value={quickAdd.material.minStock}
+          onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, minStock: parseFloat(e.target.value) || 0 } }))} />
+      </div>
     </div>
     <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
       <button className="btn btn-success btn-sm" onClick={handleQuickAddMaterial} disabled={isSubmitting}>💾 إضافة</button>
-      <button className="btn btn-outline btn-sm" onClick={() => setShowQuickMaterial(false)}>إلغاء</button>
+      <button className="btn btn-outline btn-sm" onClick={() => { setShowQuickMaterial(false); setQuickAdd(prev => ({ ...prev, material: { name: '', category: '', unit: '', price: 0, currentQuantity: 0, minStock: 0 } })); }}>إلغاء</button>
     </div>
-    <div style={{ fontSize: '0.75rem', color: 'var(--gray-500)', marginTop: '0.25rem' }}>
-      💡 سيتم تعيين المخزون الأولي والحد الأدنى تلقائياً (يمكن تعديلهما لاحقاً من صفحة المخزون)
+    <div style={{ fontSize: '0.7rem', color: 'var(--gray-500)', marginTop: '0.25rem' }}>
+      <span style={{ color: 'red' }}>*</span> الحقول الإجبارية.
     </div>
   </div>
 )}
-</div>
+              </div>
 
               {/* ===== الكمية والسعر ===== */}
               <div className="form-row">
@@ -1035,27 +1128,29 @@ const calculateCustomerDebt = useCallback((customerId) => {
                 </div>
               )}
 
-              <div className="form-group">
-                <label>المبلغ <span className="required">*</span></label>
-                <input className={`form-control ${paymentErrors.amount ? 'is-invalid' : ''}`}
-                  type="number" step="0.01" min="0.01"
-                  value={paymentForm.amount}
-                  onChange={(e) => { 
-                    const val = parseFloat(e.target.value) || 0;
-                    setPaymentForm({ ...paymentForm, amount: val });
-                    if (paymentErrors.amount) setPaymentErrors({ ...paymentErrors, amount: '' });
-                  }}
-                  disabled={paymentSubmitting} 
-                  placeholder="أدخل المبلغ" 
-                />
-                {paymentErrors.amount && <div className="error-text">{paymentErrors.amount}</div>}
-                {customerDebtDetails && customerDebtDetails.remaining > 0.001 && (
-                  <div className="helper-text" style={{ color: 'var(--gray-500)' }}>
-                    💡 الحد الأقصى للدفع: {formatCurrency(customerDebtDetails.remaining, settings?.currency || 'ل.س')}
-                  </div>
-                )}
-              </div>
-
+            <div className="form-group">
+  <label>المبلغ <span className="required">*</span></label>
+  <input 
+    className={`form-control no-spinner ${paymentErrors.amount ? 'is-invalid' : ''}`}
+    type="number" 
+    step="0.0" 
+    min="0.0"
+    value={paymentForm.amount}
+    onChange={(e) => { 
+      const val = parseFloat(e.target.value) || 0;
+      setPaymentForm({ ...paymentForm, amount: val });
+      if (paymentErrors.amount) setPaymentErrors({ ...paymentErrors, amount: '' });
+    }}
+    disabled={paymentSubmitting} 
+    placeholder="أدخل المبلغ" 
+  />
+  {paymentErrors.amount && <div className="error-text">{paymentErrors.amount}</div>}
+  {customerDebtDetails && customerDebtDetails.remaining > 0.001 && (
+    <div className="helper-text" style={{ color: 'var(--gray-500)' }}>
+      💡 الحد الأقصى للدفع: {formatCurrency(customerDebtDetails.remaining, settings?.currency || 'ل.س')}
+    </div>
+  )}
+</div>
               <div className="form-group">
                 <label>طريقة الدفع</label>
                 <select className="form-control" value={paymentForm.method}

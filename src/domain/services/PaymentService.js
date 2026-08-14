@@ -1,70 +1,35 @@
 import { db } from '../../core/database';
-import { Payment } from '../entities';
+import { SaleService } from './SaleService';
 
+// ============================================================
+// ⚠️ هذه الخدمة "منسوخة" ومهجورة عملياً: كانت تكتب دفعات مباشرة
+// بـ db.add بدون أي تحديث لـ sales.paidAmount / remainingBalance
+// أو invoices، وبدون أي تقريب (round2/MIN_BALANCE). لو استُخدمت
+// بالخطأ بمكان جديد بالمستقبل، كانت رح تُنتج بالضبط نفس مشكلة
+// "الأرقام غير المتطابقة" اللي ظهرت بصفحة الدفعات.
+//
+// الآن هي مجرد واجهة تفويض (delegate) لـ SaleService، حتى لا
+// تبقى مصدر بيانات موازٍ ومتضارب. لا تضف منطقاً جديداً هنا —
+// أي منطق مالي يجب أن يكون بـ SaleService فقط (مصدر الحقيقة الوحيد).
+// ============================================================
 export const PaymentService = {
   async createPayment(data) {
-    const payment = new Payment(data);
-    payment.validate();
-    
-    // التحقق من أن المبلغ لا يتجاوز الرصيد
-    const balance = await this.getCustomerBalance(payment.customerId);
-    if (payment.amount > balance) {
-      throw new Error(`المبلغ المدفوع (${payment.amount}) يتجاوز الرصيد المتبقي (${balance})`);
-    }
-    
-    const id = await db.add('payments', payment.toJSON());
-    
-    await db.add('audit_logs', {
-      action: 'payment_created',
-      entity: 'payment',
-      entityId: id,
-      details: `دفعة جديدة: ${payment.amount}`,
-      timestamp: new Date().toISOString(),
-      userId: 'system'
+    return await SaleService.recordPayment({
+      customerId: data.customerId,
+      amount: data.amount,
+      method: data.method,
+      notes: data.notes,
+      paymentDate: data.paymentDate
     });
-    
-    return id;
   },
 
   async cancelPayment(id, reason = '') {
-    const payment = await db.get('payments', id);
-    if (!payment) throw new Error('الدفعة غير موجودة');
-    if (payment.status === 'cancelled') throw new Error('الدفعة ملغاة بالفعل');
-    
-    const updated = {
-      ...payment,
-      status: 'cancelled',
-      cancelledAt: new Date().toISOString(),
-      cancellationReason: reason || ''
-    };
-    
-    await db.put('payments', updated);
-    
-    await db.add('audit_logs', {
-      action: 'payment_cancelled',
-      entity: 'payment',
-      entityId: id,
-      details: `إلغاء دفعة: ${payment.amount}`,
-      timestamp: new Date().toISOString(),
-      userId: 'system'
-    });
-    
-    return true;
+    return await SaleService.cancelPaymentAndRestoreBalance(id, reason);
   },
 
   async getCustomerBalance(customerId) {
-    const payments = await db.getByIndex('payments', 'customerId', customerId);
-    const sales = await db.getByIndex('sales', 'customerId', customerId);
-    
-    const totalSales = sales
-      .filter(s => s.status !== 'cancelled')
-      .reduce((sum, s) => sum + (s.totalAmount || 0), 0);
-    
-    const totalPayments = payments
-      .filter(p => p.status !== 'cancelled')
-      .reduce((sum, p) => sum + (p.amount || 0), 0);
-    
-    return totalSales - totalPayments;
+    const result = await SaleService.getCustomerBalance(customerId);
+    return result.balance;
   },
 
   async getAll() {

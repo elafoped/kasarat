@@ -3,6 +3,7 @@ import { db } from '../../core/database';
 import { Validators } from '../../core/validation';
 import { formatCurrency, formatDate } from '../utils/formatters';
 import CustomerSearch from './CustomerSearch';
+import { SaleService } from '../../domain/services/SaleService';
 
 function Payments({ success, error, warning, settings, onRefresh }) {
   const [payments, setPayments] = useState([]);
@@ -78,18 +79,22 @@ function Payments({ success, error, warning, settings, onRefresh }) {
 
     try {
       const now = new Date().toISOString();
-      const data = {
+
+      // ⭐ لازم نمرّ من SaleService.recordPayment دائماً، وليس db.add مباشرة.
+      // db.add كان يضيف سطر دفعة "معلّق" لا يمس sales.paidAmount ولا
+      // sales.remainingBalance ولا invoices إطلاقاً — وهذا هو سبب اختلاف
+      // الأرقام بين صفحة "الدفعات" وصفحة "المبيعات/الديون".
+      // recordPayment يوزّع المبلغ FIFO على أقدم الفواتير ويحدّث كل شيء
+      // بشكل متسق مع نفس منطق التقريب المستخدم بباقي النظام.
+      await SaleService.recordPayment({
         customerId: selectedCustomer.id,
         amount: Number(formData.amount),
         method: formData.method,
         notes: formData.notes,
-        paymentDate: formData.paymentDate || now,
-        status: 'active',
-        createdAt: now
-      };
+        paymentDate: formData.paymentDate || now
+      });
 
-      await db.add('payments', data);
-      success('✅ تم تسجيل الدفعة بنجاح');
+      success('✅ تم تسجيل الدفعة وتوزيعها على الفواتير بنجاح');
 
       setShowModal(false);
       setSelectedCustomer(null);
@@ -106,27 +111,30 @@ function Payments({ success, error, warning, settings, onRefresh }) {
       if (onRefresh) onRefresh();
 
     } catch (e) {
-      error('❌ خطأ: ' + e.message);
+      if (e.message && e.message.includes('تم حذف الرصيد المتبقي الصغير')) {
+        warning('⚠️ ' + e.message);
+        setShowModal(false);
+        await loadData();
+        if (onRefresh) onRefresh();
+      } else {
+        error('❌ خطأ: ' + e.message);
+      }
     } finally {
       setIsSubmitting(false);
     }
   };
 
   // حذف دفعة
+  // ⚠️ منعنا الحذف المباشر: الدفعات الآن موزّعة تلقائياً (FIFO) على فواتير
+  // محددة وتُحدّث sales.paidAmount / remainingBalance عند إنشائها.
+  // حذفها من هنا مباشرة (db.delete) كان يترك رصيد البيع "مدفوعاً" بشكل
+  // وهمي رغم حذف الدفعة، فيصير فرق دائم لا يُصحَّح تلقائياً.
+  // الحل الصحيح هو الإلغاء (الذي يعكس المبلغ على الفاتورة)، وليس الحذف.
   const handleDelete = async (id) => {
-    if (!window.confirm('⚠️ هل أنت متأكد من حذف هذه الدفعة؟')) return;
-
-    try {
-      await db.delete('payments', id);
-      success('✅ تم حذف الدفعة');
-      await loadData();
-      if (onRefresh) onRefresh();
-    } catch (e) {
-      error('❌ خطأ: ' + e.message);
-    }
+    warning('⚠️ لا يمكن حذف الدفعات مباشرة لأن ذلك يسبب اختلال أرصدة الفواتير. استخدم "إلغاء الدفعة" بدلاً من ذلك.');
   };
 
-  // إلغاء دفعة
+  // إلغاء دفعة — يعكس المبلغ على البيع/الفاتورة المرتبطة بها بدل ترك أثر وهمي
   const handleCancel = async (id) => {
     const reason = window.prompt('أدخل سبب الإلغاء:');
     if (reason === null) return;
@@ -136,20 +144,8 @@ function Payments({ success, error, warning, settings, onRefresh }) {
     }
 
     try {
-      const payment = await db.get('payments', id);
-      if (!payment) {
-        error('الدفعة غير موجودة');
-        return;
-      }
-
-      await db.put('payments', {
-        ...payment,
-        status: 'cancelled',
-        cancelledAt: new Date().toISOString(),
-        cancellationReason: reason.trim()
-      });
-
-      success('✅ تم إلغاء الدفعة');
+      await SaleService.cancelPaymentAndRestoreBalance(id, reason.trim());
+      success('✅ تم إلغاء الدفعة وإعادة المبلغ لرصيد الفاتورة');
       await loadData();
       if (onRefresh) onRefresh();
     } catch (e) {
@@ -338,9 +334,7 @@ function Payments({ success, error, warning, settings, onRefresh }) {
                             <button className="btn btn-danger btn-xs" onClick={() => handleCancel(p.id)}>
                               ❌ إلغاء
                             </button>
-                            <button className="btn btn-danger btn-xs" onClick={() => handleDelete(p.id)}>
-                              🗑️ حذف
-                            </button>
+                           
                           </>
                         )}
                       </td>
