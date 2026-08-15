@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { db } from '../../core/database';
 import { formatCurrency, formatDate } from '../utils/formatters';
+import { printHtmlDocument } from '../utils/printDocument';
 
 function Debts({ settings, showToast }) {
   const [customers, setCustomers] = useState([]);
@@ -349,12 +350,6 @@ function Debts({ settings, showToast }) {
       </tr>`;
     }).join('');
 
-    const printWindow = window.open('', '_blank', 'width=900,height=700');
-    if (!printWindow) {
-      if (showToast) showToast('الرجاء السماح للنوافذ المنبثقة', 'warning');
-      return;
-    }
-
     const html = `<!DOCTYPE html><html dir="rtl"><head><meta charset="UTF-8"><title>كشف حساب - ${customer.name}</title>
     <style>
       body{font-family:'Cairo',sans-serif;padding:2rem;direction:rtl;}
@@ -395,11 +390,11 @@ function Debts({ settings, showToast }) {
       </div>
       <div class="footer">${companyName} - كشف حساب مطبوع بتاريخ ${new Date().toLocaleString('ar-EG')}</div>
     </div>
-    <script>window.onload=function(){window.print();};<\/script>
     </body></html>`;
 
-    printWindow.document.write(html);
-    printWindow.document.close();
+    // ⭐ نطبع عبر iframe مخفي بدل window.open (كان يفشل بالتطبيق المكتبي
+    // لأن Electron وما شابه يمنع فتح نوافذ متصفح جديدة افتراضياً)
+    printHtmlDocument(html);
   };
 
   // ============================================================

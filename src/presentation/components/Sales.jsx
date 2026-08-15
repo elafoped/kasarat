@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { db } from '../../core/database';
 import { formatCurrency, formatDate } from '../utils/formatters';
+import { printHtmlDocument } from '../utils/printDocument';
 import { SaleService } from '../../domain/services/SaleService';
 import CustomerSearch from './CustomerSearch';
 import { Validators } from '../../core/validation';
@@ -495,8 +496,6 @@ const [quickAdd, setQuickAdd] = useState({
     const customer = (customers || []).find(c => c.id === sale.customerId);
     const material = (materials || []).find(m => m.id === sale.materialId);
     const vehicle = (vehicles || []).find(v => v.id === sale.vehicleId);
-    const printWindow = window.open('', '_blank', 'width=800,height=600');
-    if (!printWindow) { if (warning) warning('الرجاء السماح للنوافذ المنبثقة'); return; }
     const currency = settings?.currency || 'ل.س';
     const companyName = settings?.companyName || 'منشأة الكسارات';
     const bal = Number(sale.totalAmount || 0) - Number(sale.paidAmount || 0);
@@ -531,9 +530,9 @@ const [quickAdd, setQuickAdd] = useState({
     <div class="row" style="font-size:1.3rem;color:${bal > 0 ? '#dc2626' : '#059669'};"><span>المتبقي:</span><span>${formatCurrency(bal, currency)}</span></div></div></div>
     ${sale.notes ? `<div style="margin-top:1rem;padding-top:1rem;border-top:1px solid #eee;"><strong>ملاحظات:</strong> ${sale.notes}</div>` : ''}
     <div class="footer">${companyName} - نسخة مطبوعة ${new Date().toLocaleString('ar-EG')}</div></div>
-    <script>window.onload=function(){window.print();setTimeout(window.close,1000);};<\/script></body></html>`;
-    printWindow.document.write(html);
-    printWindow.document.close();
+    </body></html>`;
+    // ⭐ نطبع عبر iframe مخفي بدل window.open (كان يفشل بالتطبيق المكتبي)
+    printHtmlDocument(html);
   };
 
   // ============================================================
@@ -819,6 +818,7 @@ const [quickAdd, setQuickAdd] = useState({
                       <td style={{ padding: '0.2rem 0.3rem' }}>
                         {s.status === 'active' && (
                           <>
+                            <button className="btn btn-warning btn-xs" onClick={() => openEditModal(s)} title="تعديل" style={{ padding: '0.05rem 0.3rem', fontSize: '0.6rem' }}>✏️</button>
                             <button className="btn btn-primary btn-xs" onClick={() => printInvoice(s)} title="طباعة" style={{ padding: '0.05rem 0.3rem', fontSize: '0.6rem' }}>🖨️</button>
                             <button className="btn btn-danger btn-xs" onClick={() => handleCancelSale(s.id)} title="إلغاء" style={{ padding: '0.05rem 0.3rem', fontSize: '0.6rem' }}>❌</button>
                           </>
@@ -1128,7 +1128,7 @@ const [quickAdd, setQuickAdd] = useState({
                 </div>
               )}
 
-            <div className="form-group">
+        <div className="form-group">
   <label>المبلغ <span className="required">*</span></label>
   <input 
     className={`form-control no-spinner ${paymentErrors.amount ? 'is-invalid' : ''}`}
@@ -1141,6 +1141,7 @@ const [quickAdd, setQuickAdd] = useState({
       setPaymentForm({ ...paymentForm, amount: val });
       if (paymentErrors.amount) setPaymentErrors({ ...paymentErrors, amount: '' });
     }}
+    onWheel={(e) => e.target.blur()} // 🔥 منع السكرول
     disabled={paymentSubmitting} 
     placeholder="أدخل المبلغ" 
   />
@@ -1151,14 +1152,14 @@ const [quickAdd, setQuickAdd] = useState({
     </div>
   )}
 </div>
+
               <div className="form-group">
                 <label>طريقة الدفع</label>
                 <select className="form-control" value={paymentForm.method}
                   onChange={(e) => setPaymentForm({ ...paymentForm, method: e.target.value })} disabled={paymentSubmitting}>
                   <option value="نقدي">💰 نقدي</option>
-                  <option value="تحويل بنكي">🏦 تحويل بنكي</option>
-                  <option value="شيك">📄 شيك</option>
-                  <option value="بطاقة">💳 بطاقة</option>
+                  <option value="شام كاش ">🏦  شام كاس</option>
+                
                 </select>
               </div>
 

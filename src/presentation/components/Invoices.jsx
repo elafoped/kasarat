@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { db } from '../../core/database';
 import { formatCurrency, formatDate, formatDateTime } from '../utils/formatters';
+import { printHtmlDocument } from '../utils/printDocument';
 import { config } from '../../core/config';
 
 function Invoices({ settings, showToast }) {
@@ -108,12 +109,6 @@ function Invoices({ settings, showToast }) {
     const material = materials.find(m => m.id === invoice.materialId);
     const vehicle = vehicles.find(v => v.id === invoice.vehicleId);
 
-    const printWindow = window.open('', '_blank', 'width=800,height=600');
-    if (!printWindow) {
-      showToast('الرجاء السماح للنوافذ المنبثقة', 'warning');
-      return;
-    }
-
     const html = `
       <!DOCTYPE html>
       <html dir="rtl">
@@ -196,15 +191,13 @@ function Invoices({ settings, showToast }) {
             ${settings.companyName || 'منشأة الكسارات'} - نسخة مطبوعة ${new Date().toLocaleString('ar-EG')}
           </div>
         </div>
-        <script>
-          window.onload = function() { window.print(); setTimeout(window.close, 1000); };
-        <\/script>
       </body>
       </html>
     `;
 
-    printWindow.document.write(html);
-    printWindow.document.close();
+    // ⭐ نطبع عبر iframe مخفي بدل window.open (كان يفشل بالتطبيق المكتبي
+    // لأن Electron وما شابه يمنع فتح نوافذ متصفح جديدة افتراضياً)
+    printHtmlDocument(html);
   };
 
   // إلغاء فاتورة
