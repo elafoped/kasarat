@@ -197,30 +197,6 @@ function Reports({ settings, showToast }) {
         analysis.recommendations.push('❌ خسارة خلال الفترة، يُنصح بإجراء مراجعة مالية شاملة');
       }
 
-    } else if (type === 'inventory') {
-      // ============================================================
-      // تحليل المخزون
-      // ============================================================
-      const totalItems = data.length;
-      const lowStockItems = data.filter(d => d['الحالة'] && d['الحالة'].includes('منخفض'));
-      const goodStockItems = data.filter(d => d['الحالة'] && d['الحالة'].includes('جيد'));
-      
-      analysis.summary = {
-        'عدد المواد': totalItems,
-        'المواد المنخفضة': `${lowStockItems.length} مادة`,
-        'المواد الجيدة': `${goodStockItems.length} مادة`,
-        'نسبة المواد المنخفضة': totalItems > 0 ? `${((lowStockItems.length / totalItems) * 100).toFixed(1)}%` : '0%'
-      };
-
-      analysis.insights = [
-        `📦 إجمالي المواد ${totalItems}`,
-        `⚠️ ${lowStockItems.length} مادة بحاجة إلى إعادة توريد`,
-        `✅ ${goodStockItems.length} مادة بمخزون جيد`
-      ];
-
-      if (lowStockItems.length > 0) {
-        analysis.recommendations.push(`⚠️ المواد التالية بحاجة إلى توريد: ${lowStockItems.map(d => d['اسم المادة']).join('، ')}`);
-      }
     }
 
     return analysis;
@@ -400,46 +376,6 @@ function Reports({ settings, showToast }) {
           };
         });
         title = '📈 تقرير الأرباح';
-      }
-
-      // ============================================================
-      // 4. تقرير المخزون
-      // ============================================================
-      else if (reportType === 'inventory') {
-        const materials = await db.getAll('materials') || [];
-        const movements = await db.getAll('inventory_movements') || [];
-
-        let filteredMovements = movements;
-        if (dateFrom) {
-          filteredMovements = filteredMovements.filter(m => m.movementDate && m.movementDate >= dateFrom);
-        }
-        if (dateTo) {
-          filteredMovements = filteredMovements.filter(m => m.movementDate && m.movementDate <= dateTo + 'T23:59:59');
-        }
-
-        data = materials.map(m => {
-          const materialMovements = filteredMovements.filter(mv => mv.materialId === m.id);
-          const totalIn = materialMovements
-            .filter(mv => mv.type === 'purchase' || mv.type === 'add' || mv.type === 'إدخال')
-            .reduce((sum, mv) => sum + (Number(mv.quantity) || 0), 0);
-          const totalOut = materialMovements
-            .filter(mv => mv.type === 'sale_out' || mv.type === 'subtract' || mv.type === 'إخراج')
-            .reduce((sum, mv) => sum + (Number(mv.quantity) || 0), 0);
-          const currentQty = Number(m.currentQuantity) || 0;
-          const minStock = Number(m.minStock) || 0;
-          return {
-            'اسم المادة': m.name || 'غير معروف',
-            'التصنيف': m.category || 'غير مصنف',
-            'الوحدة': m.unit || '-',
-            'الكمية الحالية': currentQty,
-            'الحد الأدنى': minStock,
-            'كمية الإدخال': totalIn,
-            'كمية الإخراج': totalOut,
-            'صافي التغير': totalIn - totalOut,
-            'الحالة': currentQty < minStock ? '⚠️ منخفض' : '✅ جيد'
-          };
-        });
-        title = '📦 تقرير المخزون';
       }
 
       // ============================================================
@@ -752,7 +688,6 @@ function Reports({ settings, showToast }) {
             <option value="sales">📊 المبيعات</option>
             <option value="expenses">💸 المصروفات</option>
             <option value="profit">📈 الأرباح</option>
-            <option value="inventory">📦 المخزون</option>
             <option value="customer">👤 زبون محدد</option>
           </select>
         </div>

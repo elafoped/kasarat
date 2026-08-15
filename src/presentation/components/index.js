@@ -2,7 +2,6 @@ export { default as Dashboard } from './Dashboard';
 export { default as Customers } from './Customers';
 export { default as Vehicles } from './Vehicles';
 export { default as Materials } from './Materials';
-export { default as Inventory } from './Inventory';
 export { default as Sales } from './Sales';
 export { default as Payments } from './Payments';
 export { default as Debts } from './Debts';

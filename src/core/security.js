@@ -327,7 +327,7 @@ class Security {
       manager: ['view_dashboard', 'manage_customers', 'manage_vehicles', 'manage_materials', 
                 'manage_sales', 'manage_payments', 'view_invoices', 'manage_expenses', 'view_reports'],
       accountant: ['view_dashboard', 'manage_payments', 'view_invoices', 'view_reports', 'manage_expenses'],
-      warehouse: ['view_dashboard', 'manage_materials', 'manage_inventory', 'view_sales'],
+      warehouse: ['view_dashboard', 'manage_materials', 'view_sales'],
       user: ['view_dashboard']
     };
 

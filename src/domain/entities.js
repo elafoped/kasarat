@@ -43,7 +43,7 @@ export class Customer {
 }
 
 // ============================================================
-// كيان المادة (المخزون)
+// كيان المادة
 // ============================================================
 export class Material {
   constructor(data) {
@@ -52,8 +52,6 @@ export class Material {
     this.category = data.category || '';
     this.unit = data.unit || '';
     this.price = data.price || 0;
-    this.currentQuantity = data.currentQuantity || 0;
-    this.minStock = data.minStock || 0;
     this.notes = data.notes || '';
     this.createdAt = data.createdAt || new Date().toISOString();
     this.updatedAt = data.updatedAt || null;
@@ -66,17 +64,7 @@ export class Material {
     if (this.price < 0) {
       throw new Error('السعر لا يمكن أن يكون سالباً');
     }
-    if (this.currentQuantity < 0) {
-      throw new Error('الكمية لا يمكن أن تكون سالبة');
-    }
-    if (this.minStock < 0) {
-      throw new Error('الحد الأدنى لا يمكن أن يكون سالباً');
-    }
     return true;
-  }
-
-  isLowStock() {
-    return this.currentQuantity < this.minStock;
   }
 
   toJSON() {
@@ -86,8 +74,6 @@ export class Material {
       category: this.category,
       unit: this.unit,
       price: this.price,
-      currentQuantity: this.currentQuantity,
-      minStock: this.minStock,
       notes: this.notes,
       createdAt: this.createdAt,
       updatedAt: this.updatedAt

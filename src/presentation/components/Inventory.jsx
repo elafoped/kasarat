@@ -128,8 +128,8 @@ function Inventory({ showToast, settings }) {
                 filteredMaterials.map(m => {
                   const stock = m.currentQuantity || 0;
                   const min = m.minStock || 0;
-                  const status = stock < min ? '⚠️ منخفض' : '✅ جيد';
-                  const cls = stock < min ? 'text-danger' : 'text-success';
+                  const status = '✅ متاح';
+                  const cls = 'text-success';
                   return <tr key={m.id}>
                     <td><strong>{m.name}</strong></td>
                     <td>{m.unit || '-'}</td>

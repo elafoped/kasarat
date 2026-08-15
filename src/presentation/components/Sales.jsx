@@ -86,9 +86,7 @@ const [quickAdd, setQuickAdd] = useState({
     name: '',
     category: '',
     unit: '',
-    price: 0,
-    currentQuantity: 0,    // ← الكمية الأولية
-    minStock: 0            // ← الحد الأدنى
+    price: 0
   }
 });
   const [showQuickCustomer, setShowQuickCustomer] = useState(false);
@@ -189,12 +187,11 @@ const [quickAdd, setQuickAdd] = useState({
   };
 
  const handleQuickAddMaterial = async () => {
-  const { name, category, unit, price, currentQuantity, minStock } = quickAdd.material;
+  const { name, category, unit, price } = quickAdd.material;
   
   // التحقق من الحقول الإجبارية
   if (!name.trim()) { if (warning) warning('اسم المادة مطلوب'); return; }
   if (price <= 0) { if (warning) warning('السعر يجب أن يكون أكبر من صفر'); return; }
-  // الكمية والحد الأدنى اختياريان (يمكن أن يكونا 0)
   
   try {
     const newMaterial = {
@@ -202,8 +199,6 @@ const [quickAdd, setQuickAdd] = useState({
       category: category.trim() || 'عام',
       unit: unit.trim() || 'قطعة',
       price: Number(price),
-      currentQuantity: Number(currentQuantity) || 0,
-      minStock: Number(minStock) || 0,
       createdAt: new Date().toISOString()
     };
     const id = await db.add('materials', newMaterial);
@@ -214,7 +209,7 @@ const [quickAdd, setQuickAdd] = useState({
     setShowQuickMaterial(false);
     setQuickAdd(prev => ({
       ...prev,
-      material: { name: '', category: '', unit: '', price: 0, currentQuantity: 0, minStock: 0 }
+      material: { name: '', category: '', unit: '', price: 0 }
     }));
     if (success) success('✅ تم إضافة المادة بنجاح');
   } catch (e) {
@@ -939,7 +934,6 @@ const [quickAdd, setQuickAdd] = useState({
                       const material = (materials || []).find(m => m.id === mid);
                       setFormData({ ...formData, materialId: mid, pricePerUnit: material?.price || 0 });
                       if (errors.materialId) setErrors({ ...errors, materialId: '' });
-                      if (errors.stock) setErrors({ ...errors, stock: '' });
                     }}
                     disabled={isSubmitting}
                     style={{ flex: 1 }}
@@ -947,14 +941,13 @@ const [quickAdd, setQuickAdd] = useState({
                     <option value="">-- اختر مادة --</option>
                     {(materials || []).map(m => (
                       <option key={m.id} value={m.id}>
-                        {m.name} (المخزون: {m.currentQuantity || 0} {m.unit || ''})
+                        {m.name} {m.unit ? `(${m.unit})` : ''}
                       </option>
                     ))}
                   </select>
                   <button type="button" className="btn btn-outline btn-sm" onClick={() => setShowQuickMaterial(true)} disabled={isSubmitting}>➕ جديد</button>
                 </div>
                 {errors.materialId && <div className="error-text">{errors.materialId}</div>}
-                {errors.stock && <div className="error-text text-danger">{errors.stock}</div>}
              {showQuickMaterial && (
   <div style={{ marginTop: '0.5rem', padding: '0.75rem', border: '1px solid var(--gray-300)', borderRadius: 'var(--radius)', background: 'var(--gray-50)' }}>
     <div style={{ fontWeight: 'bold', marginBottom: '0.5rem', fontSize: '0.9rem' }}>➕ إضافة مادة جديدة</div>
@@ -983,22 +976,10 @@ const [quickAdd, setQuickAdd] = useState({
         <input className="form-control" type="number" step="0.01" min="0" placeholder="مثال: 5000" value={quickAdd.material.price}
           onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, price: parseFloat(e.target.value) || 0 } }))} />
       </div>
-      {/* الكمية الأولية */}
-      <div>
-        <label style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>الكمية الأولية</label>
-        <input className="form-control" type="number" step="0.01" min="0" placeholder="المخزون الابتدائي" value={quickAdd.material.currentQuantity}
-          onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, currentQuantity: parseFloat(e.target.value) || 0 } }))} />
-      </div>
-      {/* الحد الأدنى */}
-      <div>
-        <label style={{ fontSize: '0.75rem', color: 'var(--gray-600)' }}>الحد الأدنى للمخزون</label>
-        <input className="form-control" type="number" step="0.01" min="0" placeholder="مثال: 10" value={quickAdd.material.minStock}
-          onChange={(e) => setQuickAdd(prev => ({ ...prev, material: { ...prev.material, minStock: parseFloat(e.target.value) || 0 } }))} />
-      </div>
     </div>
     <div style={{ marginTop: '0.5rem', display: 'flex', gap: '0.5rem' }}>
       <button className="btn btn-success btn-sm" onClick={handleQuickAddMaterial} disabled={isSubmitting}>💾 إضافة</button>
-      <button className="btn btn-outline btn-sm" onClick={() => { setShowQuickMaterial(false); setQuickAdd(prev => ({ ...prev, material: { name: '', category: '', unit: '', price: 0, currentQuantity: 0, minStock: 0 } })); }}>إلغاء</button>
+      <button className="btn btn-outline btn-sm" onClick={() => { setShowQuickMaterial(false); setQuickAdd(prev => ({ ...prev, material: { name: '', category: '', unit: '', price: 0 } })); }}>إلغاء</button>
     </div>
     <div style={{ fontSize: '0.7rem', color: 'var(--gray-500)', marginTop: '0.25rem' }}>
       <span style={{ color: 'red' }}>*</span> الحقول الإجبارية.

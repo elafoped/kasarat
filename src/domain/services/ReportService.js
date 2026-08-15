@@ -32,38 +32,6 @@ export const ReportService = {
     }));
   },
 
-  async getInventoryReport() {
-    const materials = await db.getAll('materials');
-    const movements = await db.getAll('inventory_movements');
-
-    return materials.map(m => {
-      const materialMovements = movements.filter(mv => mv.materialId === m.id);
-      const lastMovement = materialMovements
-        .sort((a, b) => (b.movementDate || '').localeCompare(a.movementDate || ''))[0];
-
-      return {
-        id: m.id,
-        name: m.name,
-        category: m.category || 'غير مصنف',
-        unit: m.unit || '-',
-        currentQuantity: m.currentQuantity || 0,
-        minStock: m.minStock || 0,
-        status: (m.currentQuantity || 0) < (m.minStock || 0) ? 'منخفض' : 'جيد',
-        lastMovement: lastMovement ? {
-          date: lastMovement.movementDate,
-          type: lastMovement.type,
-          quantity: lastMovement.quantity
-        } : null,
-        totalIn: materialMovements
-          .filter(mv => mv.type === 'purchase' || mv.type === 'add')
-          .reduce((sum, mv) => sum + (mv.quantity || 0), 0),
-        totalOut: materialMovements
-          .filter(mv => mv.type === 'sale_out' || mv.type === 'subtract')
-          .reduce((sum, mv) => sum + (mv.quantity || 0), 0)
-      };
-    });
-  },
-
   async getCustomersReport() {
     const customers = await db.getAll('customers');
     const sales = await db.getAll('sales');

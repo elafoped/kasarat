@@ -37,8 +37,8 @@ export class InventoryService {
   }
 
   static async getLowStockMaterials() {
-    const materials = await db.getAll('materials')
-    return materials.filter(m => (m.currentQuantity || 0) < (m.minStock || 0))
+    // المخزون يُعتبر متاحاً دائماً، فلا توجد مواد "منخفضة"
+    return []
   }
 
   static async getInventoryReport() {
@@ -61,7 +61,7 @@ export class InventoryService {
         unit: m.unit || '-',
         currentQuantity: m.currentQuantity || 0,
         minStock: m.minStock || 0,
-        status: (m.currentQuantity || 0) < (m.minStock || 0) ? 'منخفض' : 'جيد',
+        status: 'متاح',
         totalIn,
         totalOut,
         netChange: totalIn - totalOut

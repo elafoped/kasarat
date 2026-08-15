@@ -9,9 +9,6 @@ export class GenerateReportUseCase {
       case 'expenses':
         return await ReportService.getExpensesReport(from, to, groupBy)
       
-      case 'inventory':
-        return await ReportService.getInventoryReport()
-      
       case 'customers':
         return await ReportService.getCustomersReport()
       

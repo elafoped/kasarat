@@ -14,8 +14,6 @@ function Materials({ success, error, warning, settings, onRefresh }) {
     category: '',
     unit: '',
     price: 0,
-    currentQuantity: 0,
-    minStock: 0,
     notes: ''
   });
   const [errors, setErrors] = useState({});
@@ -56,11 +54,6 @@ function Materials({ success, error, warning, settings, onRefresh }) {
       newErrors.price = priceCheck.message;
     }
     
-    const qtyCheck = Validators.validateQuantity(formData.currentQuantity);
-    if (!qtyCheck.valid) {
-      newErrors.currentQuantity = qtyCheck.message;
-    }
-    
     setErrors(newErrors);
     return Object.keys(newErrors).length === 0;
   };
@@ -86,8 +79,6 @@ function Materials({ success, error, warning, settings, onRefresh }) {
         category: formData.category.trim(),
         unit: formData.unit.trim(),
         price: Number(formData.price) || 0,
-        currentQuantity: Number(formData.currentQuantity) || 0,
-        minStock: Number(formData.minStock) || 0,
         notes: formData.notes.trim()
       };
 
@@ -105,19 +96,15 @@ function Materials({ success, error, warning, settings, onRefresh }) {
         );
         
         if (existing) {
-          // دمج الكميات
-          const newQuantity = (existing.currentQuantity || 0) + (cleanedData.currentQuantity || 0);
           await db.put('materials', {
             ...existing,
-            currentQuantity: newQuantity,
             price: cleanedData.price || existing.price,
             category: cleanedData.category || existing.category,
             unit: cleanedData.unit || existing.unit,
-            minStock: cleanedData.minStock || existing.minStock,
             notes: cleanedData.notes || existing.notes,
             updatedAt: now
           });
-          success(`✅ تم دمج الكميات (المجموع: ${newQuantity})`);
+          success('✅ تم تحديث بيانات المادة الموجودة');
         } else {
           await db.add('materials', {
             ...cleanedData,
@@ -132,7 +119,7 @@ function Materials({ success, error, warning, settings, onRefresh }) {
       // ============================================================
       setShowModal(false);
       setEditingMaterial(null);
-      setFormData({ name: '', category: '', unit: '', price: 0, currentQuantity: 0, minStock: 0, notes: '' });
+      setFormData({ name: '', category: '', unit: '', price: 0, notes: '' });
       setErrors({});
       
       await loadData();
@@ -180,13 +167,11 @@ function Materials({ success, error, warning, settings, onRefresh }) {
         category: material.category || '',
         unit: material.unit || '',
         price: material.price || 0,
-        currentQuantity: material.currentQuantity || 0,
-        minStock: material.minStock || 0,
         notes: material.notes || ''
       });
     } else {
       setEditingMaterial(null);
-      setFormData({ name: '', category: '', unit: '', price: 0, currentQuantity: 0, minStock: 0, notes: '' });
+      setFormData({ name: '', category: '', unit: '', price: 0, notes: '' });
     }
     setErrors({});
     setShowModal(true);
@@ -207,8 +192,6 @@ function Materials({ success, error, warning, settings, onRefresh }) {
     if (!q) return true;
     return m.name.toLowerCase().includes(q) || (m.category || '').toLowerCase().includes(q);
   });
-
-  const lowStockItems = materials.filter(m => (m.currentQuantity || 0) < (m.minStock || 0));
 
   return (
     <div className="page-section active">
@@ -238,10 +221,6 @@ function Materials({ success, error, warning, settings, onRefresh }) {
           <div className="label">📦 إجمالي المواد</div>
           <div className="value">{materials.length}</div>
         </div>
-        <div className={`stat-item ${lowStockItems.length > 0 ? 'danger' : 'success'}`}>
-          <div className="label">{lowStockItems.length > 0 ? '⚠️ مواد منخفضة' : '✅ المخزون جيد'}</div>
-          <div className="value">{lowStockItems.length}</div>
-        </div>
       </div>
 
       <div className="card">
@@ -254,25 +233,18 @@ function Materials({ success, error, warning, settings, onRefresh }) {
                 <th>التصنيف</th>
                 <th>الوحدة</th>
                 <th>السعر</th>
-                <th>الكمية</th>
-                <th>الحد الأدنى</th>
-                <th>الحالة</th>
                 <th>الإجراءات</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan="9" className="text-center">⏳ جاري التحميل...</td></tr>
+                <tr><td colSpan="6" className="text-center">⏳ جاري التحميل...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan="9" className="text-center">
+                <tr><td colSpan="6" className="text-center">
                   {search ? '🔍 لا توجد نتائج للبحث' : '📭 لا توجد مواد'}
                 </td></tr>
               ) : (
                 filtered.map((m, index) => {
-                  const stock = m.currentQuantity || 0;
-                  const min = m.minStock || 0;
-                  const status = stock < min ? '⚠️ منخفض' : '✅ جيد';
-                  const cls = stock < min ? 'text-danger' : 'text-success';
                   return (
                     <tr key={m.id}>
                       <td>{index + 1}</td>
@@ -280,9 +252,6 @@ function Materials({ success, error, warning, settings, onRefresh }) {
                       <td>{m.category || '-'}</td>
                       <td>{m.unit || '-'}</td>
                       <td>{formatCurrency(m.price || 0, settings.currency)}</td>
-                      <td>{stock}</td>
-                      <td>{min}</td>
-                      <td className={cls}>{status}</td>
                       <td>
                         <button className="btn btn-warning btn-xs" onClick={() => openModal(m)}>✏️ تعديل</button>
                         <button className="btn btn-danger btn-xs" onClick={() => handleDelete(m.id)}>🗑️ حذف</button>
@@ -346,44 +315,17 @@ function Materials({ success, error, warning, settings, onRefresh }) {
                 />
               </div>
 
-              <div className="form-row">
-                <div className="form-group">
-                  <label>السعر</label>
-                  <input 
-                    className={`form-control ${errors.price ? 'is-invalid' : ''}`}
-                    type="number" 
-                    step="0.01" 
-                    value={formData.price} 
-                    onChange={(e) => setFormData({...formData, price: parseFloat(e.target.value) || 0})} 
-                    disabled={isSubmitting}
-                  />
-                  {errors.price && <div className="error-text">{errors.price}</div>}
-                </div>
-                <div className="form-group">
-                  <label>الكمية الحالية</label>
-                  <input 
-                    className={`form-control ${errors.currentQuantity ? 'is-invalid' : ''}`}
-                    type="number" 
-                    step="0.01" 
-                    value={formData.currentQuantity} 
-                    onChange={(e) => setFormData({...formData, currentQuantity: parseFloat(e.target.value) || 0})} 
-                    disabled={isSubmitting}
-                  />
-                  {errors.currentQuantity && <div className="error-text">{errors.currentQuantity}</div>}
-                </div>
-              </div>
-
               <div className="form-group">
-                <label>الحد الأدنى للتخزين</label>
+                <label>السعر</label>
                 <input 
-                  className="form-control" 
+                  className={`form-control ${errors.price ? 'is-invalid' : ''}`}
                   type="number" 
                   step="0.01" 
-                  value={formData.minStock} 
-                  onChange={(e) => setFormData({...formData, minStock: parseFloat(e.target.value) || 0})} 
-                  placeholder="تنبيه عند الوصول لهذا الرقم"
+                  value={formData.price} 
+                  onChange={(e) => setFormData({...formData, price: parseFloat(e.target.value) || 0})} 
                   disabled={isSubmitting}
                 />
+                {errors.price && <div className="error-text">{errors.price}</div>}
               </div>
 
               <div className="form-group">

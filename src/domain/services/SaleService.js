@@ -50,9 +50,6 @@ export const SaleService = {
 
     const material = await db.get('materials', sale.materialId);
     if (!material) throw new Error('المادة غير موجودة');
-    if ((material.currentQuantity || 0) < sale.quantity) {
-      throw new Error(`المخزون غير كافٍ (المتاح: ${material.currentQuantity})`);
-    }
 
     const qty = round2(sale.quantity);
     const price = round2(sale.pricePerUnit);
@@ -69,20 +66,8 @@ export const SaleService = {
     const now = new Date().toISOString();
 
     return await db.transaction(
-      ['sales', 'invoices', 'payments', 'materials', 'inventory_movements', 'audit_logs'],
+      ['sales', 'invoices', 'payments', 'audit_logs'],
       async (tx) => {
-        const newQty = round2(material.currentQuantity - sale.quantity);
-        await tx.materials.put({ ...material, currentQuantity: newQty, updatedAt: now });
-
-        await tx.inventory_movements.add({
-          materialId: sale.materialId,
-          type: 'sale_out',
-          quantity: sale.quantity,
-          reason: `بيع - ${sale.invoiceNumber}`,
-          movementDate: now,
-          reference: sale.invoiceNumber
-        });
-
         const saleId = await tx.sales.add(sale.toJSON());
 
         const invoice = new Invoice({
@@ -137,26 +122,11 @@ export const SaleService = {
     if (!sale) throw new Error('البيع غير موجود');
     if (sale.status === 'cancelled') throw new Error('البيع ملغى بالفعل');
 
-    const material = await db.get('materials', sale.materialId);
-    if (!material) throw new Error('المادة غير موجودة');
-
     const now = new Date().toISOString();
 
     return await db.transaction(
-      ['sales', 'invoices', 'payments', 'materials', 'inventory_movements', 'audit_logs'],
+      ['sales', 'invoices', 'payments', 'audit_logs'],
       async (tx) => {
-        const newQty = round2(material.currentQuantity + sale.quantity);
-        await tx.materials.put({ ...material, currentQuantity: newQty, updatedAt: now });
-
-        await tx.inventory_movements.add({
-          materialId: sale.materialId,
-          type: 'sale_cancel',
-          quantity: sale.quantity,
-          reason: `إلغاء بيع - ${sale.invoiceNumber}` + (reason ? ` (${reason})` : ''),
-          movementDate: now,
-          reference: sale.invoiceNumber
-        });
-
         await tx.sales.put({
           ...sale,
           status: 'cancelled',
@@ -210,25 +180,8 @@ export const SaleService = {
     if (sale.status === 'cancelled') throw new Error('لا يمكن تعديل بيع ملغى');
 
     const newMaterialId = data.materialId !== undefined ? data.materialId : sale.materialId;
-    const materialChanged = newMaterialId !== sale.materialId;
 
-    const oldMaterial = await db.get('materials', sale.materialId);
-    if (!oldMaterial) throw new Error('المادة الأصلية غير موجودة');
-
-    const newMaterial = materialChanged ? await db.get('materials', newMaterialId) : oldMaterial;
-    if (!newMaterial) throw new Error('المادة الجديدة غير موجودة');
-
-    const oldQuantity = sale.quantity;
-    const newQuantity = data.quantity !== undefined ? data.quantity : oldQuantity;
-    const quantityDiff = round2(newQuantity - oldQuantity);
-
-    if (materialChanged) {
-      if (round2(newMaterial.currentQuantity || 0) < round2(newQuantity - TOLERANCE)) {
-        throw new Error(`المخزون غير كافٍ في المادة الجديدة (المتاح: ${newMaterial.currentQuantity})`);
-      }
-    } else if (quantityDiff > TOLERANCE && round2(newMaterial.currentQuantity || 0) < round2(quantityDiff - TOLERANCE)) {
-      throw new Error(`المخزون غير كافٍ (المتاح: ${newMaterial.currentQuantity})`);
-    }
+    const newQuantity = data.quantity !== undefined ? data.quantity : sale.quantity;
 
     const newPricePerUnit = data.pricePerUnit !== undefined ? data.pricePerUnit : sale.pricePerUnit;
     const newTotal = round2(newQuantity * newPricePerUnit);
@@ -239,52 +192,8 @@ export const SaleService = {
     const now = new Date().toISOString();
 
     return await db.transaction(
-      ['sales', 'invoices', 'payments', 'materials', 'inventory_movements', 'audit_logs'],
+      ['sales', 'invoices', 'payments', 'audit_logs'],
       async (tx) => {
-        if (materialChanged) {
-          await tx.materials.put({
-            ...oldMaterial,
-            currentQuantity: round2((oldMaterial.currentQuantity || 0) + oldQuantity),
-            updatedAt: now
-          });
-          await tx.inventory_movements.add({
-            materialId: oldMaterial.id,
-            type: 'sale_update_return',
-            quantity: oldQuantity,
-            reason: `إرجاع مخزون بسبب تغيير مادة البيع ${sale.invoiceNumber}`,
-            movementDate: now,
-            reference: sale.invoiceNumber
-          });
-
-          await tx.materials.put({
-            ...newMaterial,
-            currentQuantity: round2((newMaterial.currentQuantity || 0) - newQuantity),
-            updatedAt: now
-          });
-          await tx.inventory_movements.add({
-            materialId: newMaterial.id,
-            type: 'sale_update',
-            quantity: newQuantity,
-            reason: `تعديل بيع (تغيير المادة) ${sale.invoiceNumber}`,
-            movementDate: now,
-            reference: sale.invoiceNumber
-          });
-        } else if (Math.abs(quantityDiff) > TOLERANCE) {
-          await tx.materials.put({
-            ...newMaterial,
-            currentQuantity: round2((newMaterial.currentQuantity || 0) - quantityDiff),
-            updatedAt: now
-          });
-          await tx.inventory_movements.add({
-            materialId: newMaterial.id,
-            type: 'sale_update',
-            quantity: quantityDiff,
-            reason: `تعديل بيع ${sale.invoiceNumber}`,
-            movementDate: now,
-            reference: sale.invoiceNumber
-          });
-        }
-
         const updatedSale = {
           ...sale,
           customerId: data.customerId !== undefined ? data.customerId : sale.customerId,

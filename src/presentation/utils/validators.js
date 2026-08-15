@@ -113,23 +113,6 @@ export const Validators = {
   },
 
   // ============================================================
-  // التحقق من الكمية
-  // ============================================================
-  validateQuantity(quantity) {
-    const num = Number(quantity);
-    
-    if (isNaN(num) || num < 0) {
-      return { valid: false, message: 'الكمية يجب أن تكون رقماً موجباً' };
-    }
-    
-    if (num > 999999999) {
-      return { valid: false, message: 'الكمية كبيرة جداً' };
-    }
-    
-    return { valid: true, value: num, message: '' };
-  },
-
-  // ============================================================
   // التحقق من المبلغ المدفوع (مع تسامح)
   // ============================================================
   validatePaidAmount(amount, total) {
@@ -213,27 +196,6 @@ export const Validators = {
     }
     
     return results;
-  },
-
-  // ============================================================
-  // التحقق من حالة المخزون قبل البيع
-  // ============================================================
-  validateStock(material, quantity) {
-    if (!material) {
-      return { valid: false, message: 'المادة غير موجودة' };
-    }
-    
-    const currentStock = material.currentQuantity || 0;
-    const qty = Number(quantity);
-    
-    if (currentStock < qty) {
-      return { 
-        valid: false, 
-        message: `المخزون غير كافٍ (المتاح: ${currentStock}، المطلوب: ${qty})` 
-      };
-    }
-    
-    return { valid: true, message: '' };
   },
 
   // ============================================================

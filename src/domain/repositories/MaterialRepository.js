@@ -34,20 +34,4 @@ export class MaterialRepository {
     await db.delete('materials', id)
     return true
   }
-
-  static async updateStock(id, quantity, type) {
-    const material = await this.getById(id)
-    if (!material) throw new Error('المادة غير موجودة')
-    
-    let newQuantity = material.currentQuantity
-    if (type === 'add') newQuantity += quantity
-    else if (type === 'subtract') newQuantity -= quantity
-    else newQuantity = quantity
-
-    if (newQuantity < 0) throw new Error('الكمية لا يمكن أن تكون سالبة')
-    
-    material.currentQuantity = newQuantity
-    await db.put('materials', material.toJSON())
-    return material
-  }
 }
